@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fast Food Line Estimation</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+    :root {
+      --bg-0: #0f1a20;
+      --bg-1: #162a33;
+      --bg-2: #1e3d47;
+      --text-main: #ecf5f5;
+      --text-dim: #9ab7b7;
+      --card: rgba(12, 24, 31, 0.78);
+      --border: rgba(179, 223, 223, 0.2);
+      --car: #1888ff;
+      --person: #4ec5a0;
+      --warn: #ffb450;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      color: var(--text-main);
+      background:
+        radial-gradient(circle at 80% 20%, rgba(78, 197, 160, 0.2), transparent 40%),
+        radial-gradient(circle at 18% 0%, rgba(24, 136, 255, 0.2), transparent 44%),
+        linear-gradient(150deg, var(--bg-0), var(--bg-1), var(--bg-2));
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .dashboard {
+      width: min(1200px, 100%);
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    }
+
+    .header {
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .title {
+      font-size: clamp(1.2rem, 3vw, 1.7rem);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .timestamp {
+      font-size: 0.92rem;
+      color: var(--text-dim);
+    }
+
+    .stream-wrap {
+      margin: 0 20px 20px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #0a1217;
+    }
+
+    .stream-wrap img {
+      width: 100%;
+      display: block;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      padding: 0 20px 20px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .label {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .value {
+      font-size: 1.55rem;
+      font-weight: 700;
+    }
+
+    .car {
+      color: var(--car);
+    }
+
+    .person {
+      color: var(--person);
+    }
+
+    .warn {
+      color: var(--warn);
+    }
+  </style>
+</head>
+<body>
+  <main class="dashboard panel">
+    <section class="header">
+      <div class="title">Fast Food Queue Estimation Demo</div>
+      <div class="timestamp" id="timestamp">Waiting for stream...</div>
+    </section>
+
+    <section class="stream-wrap">
+      <img src="/video/feed" alt="Live queue stream" />
+    </section>
+
+    <section class="metrics">
+      <article class="metric">
+        <div class="label">Drive-Thru Cars</div>
+        <div class="value car" id="car_count">0</div>
+      </article>
+      <article class="metric">
+        <div class="label">Estimated Passengers</div>
+        <div class="value car" id="est_passengers">0.0</div>
+      </article>
+      <article class="metric">
+        <div class="label">In-Store People</div>
+        <div class="value person" id="person_count">0</div>
+      </article>
+      <article class="metric">
+        <div class="label">Total Customers</div>
+        <div class="value" id="total_customers">0.0</div>
+      </article>
+      <article class="metric">
+        <div class="label">Estimated Wait (min)</div>
+        <div class="value warn" id="wait_time">0.0</div>
+      </article>
+      <article class="metric">
+        <div class="label">Avg Service Time (sec)</div>
+        <div class="value" id="service_time">0.0</div>
+      </article>
+      <article class="metric">
+        <div class="label">Inference Device</div>
+        <div class="value" id="inference_device">-</div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const ids = {
+      timestamp: document.getElementById("timestamp"),
+      carCount: document.getElementById("car_count"),
+      estPassengers: document.getElementById("est_passengers"),
+      personCount: document.getElementById("person_count"),
+      totalCustomers: document.getElementById("total_customers"),
+      waitTime: document.getElementById("wait_time"),
+      serviceTime: document.getElementById("service_time"),
+      inferenceDevice: document.getElementById("inference_device"),
+    };
+
+    async function refreshMetrics() {
+      try {
+        const response = await fetch("/api/metrics", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Unable to load metrics.");
+        }
+        const data = await response.json();
+        ids.timestamp.textContent = `Updated: ${new Date(data.timestamp).toLocaleString()}`;
+        ids.carCount.textContent = data.drive_thru.car_count;
+        ids.estPassengers.textContent = data.drive_thru.est_passengers.toFixed(1);
+        ids.personCount.textContent = data.in_store.person_count;
+        ids.totalCustomers.textContent = data.aggregates.total_customers.toFixed(1);
+        ids.waitTime.textContent = data.aggregates.estimated_wait_time_min.toFixed(1);
+        ids.serviceTime.textContent = data.aggregates.avg_service_time_sec.toFixed(1);
+        ids.inferenceDevice.textContent = data.inference_device || "unknown";
+      } catch (error) {
+        ids.timestamp.textContent = "Metrics unavailable";
+      }
+    }
+
+    refreshMetrics();
+    setInterval(refreshMetrics, 1000);
+  </script>
+</body>
+</html>
