@@ -28,6 +28,22 @@ function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+function unitLabelFromItem(item: RecommendationItem | null | undefined): string {
+  const normalized = item?.unit_label?.trim();
+  return normalized && normalized.length ? normalized : "units";
+}
+
+function deriveRecommendationNumbers(item: RecommendationItem): {
+  baselineUnits: number;
+  recommendedUnits: number;
+  deltaUnits: number;
+} {
+  const baselineUnits = Number.isFinite(item.baseline_units) ? item.baseline_units : 0;
+  const recommendedUnits = Number.isFinite(item.recommended_units) ? item.recommended_units : baselineUnits;
+  const deltaUnits = Number.isFinite(item.delta_units) ? item.delta_units : recommendedUnits - baselineUnits;
+  return { baselineUnits, recommendedUnits, deltaUnits };
+}
+
 export default function JudgeBriefPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [reco, setReco] = useState<RecommendationResponse | null>(null);
@@ -84,8 +100,20 @@ export default function JudgeBriefPage() {
     if (!items.length) {
       return null;
     }
-    return [...items].sort((a, b) => Math.abs(b.delta_units) - Math.abs(a.delta_units))[0];
+    return [...items].sort((a, b) => {
+      const aDelta = deriveRecommendationNumbers(a).deltaUnits;
+      const bDelta = deriveRecommendationNumbers(b).deltaUnits;
+      return Math.abs(bDelta) - Math.abs(aDelta);
+    })[0];
   }, [reco?.recommendations]);
+  const topActionNumbers = useMemo(
+    () => (topAction ? deriveRecommendationNumbers(topAction) : null),
+    [topAction],
+  );
+  const topActionUnitLabel = useMemo(
+    () => unitLabelFromItem(topAction),
+    [topAction],
+  );
 
   const stateNarrative = useMemo(() => {
     if (!metrics || !reco) {
@@ -175,7 +203,7 @@ export default function JudgeBriefPage() {
 
         <article className="panel rounded-3xl p-5 md:p-6">
           <h2 className="display text-xl font-semibold text-graphite">Action Recommendation</h2>
-          {topAction ? (
+          {topAction && topActionNumbers ? (
             <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="display text-lg font-semibold text-graphite">{topAction.label}</h3>
@@ -184,11 +212,21 @@ export default function JudgeBriefPage() {
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-700">
-                Recommended drop <span className="font-semibold">{topAction.recommended_units} units</span>, baseline {topAction.baseline_units} units.
+                Recommended drop <span className="font-semibold">{topActionNumbers.recommendedUnits} {topActionUnitLabel}</span>, baseline {topActionNumbers.baselineUnits} {topActionUnitLabel}.
               </p>
+              {topAction.ready_inventory_units !== undefined || topAction.fryer_inventory_units !== undefined ? (
+                <p className="mt-1 text-sm text-muted">
+                  Inventory: ready {topAction.ready_inventory_units ?? 0} | fryer {topAction.fryer_inventory_units ?? 0} {topActionUnitLabel}
+                </p>
+              ) : null}
               <p className="mt-1 text-sm text-slate-700">
-                Delta: <span className="font-semibold">{topAction.delta_units > 0 ? `+${topAction.delta_units}` : topAction.delta_units} units</span>
+                Delta: <span className="font-semibold">{topActionNumbers.deltaUnits > 0 ? `+${topActionNumbers.deltaUnits}` : topActionNumbers.deltaUnits} {topActionUnitLabel}</span>
               </p>
+              {topAction.next_decision_in_sec !== undefined ? (
+                <p className="mt-1 text-xs text-muted">
+                  {topAction.decision_locked ? `Next decision in ${topAction.next_decision_in_sec}s.` : `Decision refreshed. Next update in ${topAction.next_decision_in_sec}s.`}
+                </p>
+              ) : null}
               <p className="mt-2 text-xs text-muted">{topAction.reason}</p>
             </div>
           ) : (

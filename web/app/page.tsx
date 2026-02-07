@@ -48,6 +48,22 @@ function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+function unitLabelFromItem(item: RecommendationItem | null | undefined): string {
+  const normalized = item?.unit_label?.trim();
+  return normalized && normalized.length ? normalized : "units";
+}
+
+function deriveRecommendationNumbers(item: RecommendationItem): {
+  baselineUnits: number;
+  recommendedUnits: number;
+  deltaUnits: number;
+} {
+  const baselineUnits = Number.isFinite(item.baseline_units) ? item.baseline_units : 0;
+  const recommendedUnits = Number.isFinite(item.recommended_units) ? item.recommended_units : baselineUnits;
+  const deltaUnits = Number.isFinite(item.delta_units) ? item.delta_units : recommendedUnits - baselineUnits;
+  return { baselineUnits, recommendedUnits, deltaUnits };
+}
+
 function emptyCameraMap<T>(value: T): Record<CameraId, T> {
   return {
     drive_thru: value,
@@ -431,33 +447,47 @@ export default function Home() {
           </div>
 
           <div className="grid gap-3">
-            {(reco?.recommendations ?? []).map((item) => (
-              <article key={item.item} className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="display text-lg font-semibold text-graphite">{item.label}</h3>
-                  <span className={`rounded-full border px-2.5 py-1 text-xs font-bold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
-                    {item.urgency}
-                  </span>
-                </div>
-
-                <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
-                  <p>
-                    Recommended Drop: <span className="display font-semibold">{item.recommended_units} units</span>
-                  </p>
-                  <p>
-                    Baseline Drop: <span className="display font-semibold">{item.baseline_units} units</span>
-                  </p>
-                  <p>
-                    Delta:{" "}
-                    <span className="display font-semibold">
-                      {item.delta_units > 0 ? `+${item.delta_units}` : item.delta_units} units
+            {(reco?.recommendations ?? []).map((item) => {
+              const { baselineUnits, recommendedUnits, deltaUnits } = deriveRecommendationNumbers(item);
+              const unitLabel = unitLabelFromItem(item);
+              return (
+                <article key={item.item} className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="display text-lg font-semibold text-graphite">{item.label}</h3>
+                    <span className={`rounded-full border px-2.5 py-1 text-xs font-bold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
+                      {item.urgency}
                     </span>
-                  </p>
-                </div>
+                  </div>
 
-                <p className="mt-2 text-sm text-muted">{item.reason}</p>
-              </article>
-            ))}
+                  <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
+                    <p>
+                      Recommended Drop: <span className="display font-semibold">{recommendedUnits} {unitLabel}</span>
+                    </p>
+                    <p>
+                      Baseline Drop: <span className="display font-semibold">{baselineUnits} {unitLabel}</span>
+                    </p>
+                    <p>
+                      Delta:{" "}
+                      <span className="display font-semibold">
+                        {deltaUnits > 0 ? `+${deltaUnits}` : deltaUnits} {unitLabel}
+                      </span>
+                    </p>
+                  </div>
+                  {item.ready_inventory_units !== undefined || item.fryer_inventory_units !== undefined ? (
+                    <p className="mt-1 text-sm text-muted">
+                      Inventory: ready {item.ready_inventory_units ?? 0} | fryer {item.fryer_inventory_units ?? 0} {unitLabel}
+                    </p>
+                  ) : null}
+                  {item.next_decision_in_sec !== undefined ? (
+                    <p className="mt-1 text-xs text-muted">
+                      {item.decision_locked ? `Next decision in ${item.next_decision_in_sec}s.` : `Decision refreshed. Next update in ${item.next_decision_in_sec}s.`}
+                    </p>
+                  ) : null}
+
+                  <p className="mt-2 text-sm text-muted">{item.reason}</p>
+                </article>
+              );
+            })}
 
             {reco?.recommendations.length ? null : (
               <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">Waiting for recommendations...</div>

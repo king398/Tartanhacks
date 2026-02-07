@@ -36,10 +36,16 @@ export type Metrics = {
 export type RecommendationItem = {
   item: string;
   label: string;
+  unit_label?: string;
   recommended_units: number;
   baseline_units: number;
   max_unit_size?: number;
   delta_units: number;
+  ready_inventory_units?: number;
+  fryer_inventory_units?: number;
+  forecast_window_demand_units?: number;
+  decision_locked?: boolean;
+  next_decision_in_sec?: number;
   urgency: "high" | "medium" | "low";
   reason: string;
 };
@@ -88,6 +94,7 @@ export type StreamSourcesResponse = {
 export type MenuItemProfile = {
   key?: string;
   label: string;
+  unit_label: string;
   units_per_order: number;
   batch_size: number;
   max_unit_size: number;

@@ -57,11 +57,11 @@ class VideoProcessor:
     def __init__(
         self,
         video_path: str | Path,
-        model_name: str = "yolo11n.pt",
+        model_name: str = "yolo26m.pt",
         sample_fps: float = 30.0,
         conf: float = 0.35,
         iou: float = 0.5,
-        imgsz: int = 640,
+        imgsz: int = 960,
         people_per_car: float = 1.5,
         avg_service_time_sec: float = 45.0,
         drive_thru_roi: tuple[float, float, float, float] | None = None,

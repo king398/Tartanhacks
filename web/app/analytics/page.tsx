@@ -42,6 +42,11 @@ function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+function unitLabelFromItem(item: RecommendationResponse["recommendations"][number] | null | undefined): string {
+  const normalized = item?.unit_label?.trim();
+  return normalized && normalized.length ? normalized : "units";
+}
+
 function mapHistoryPoint(point: AnalyticsHistoryPoint): AnalyticsPoint {
   return {
     id: point.id,
@@ -556,18 +561,21 @@ export default function AnalyticsPage() {
         <aside className="panel rounded-3xl p-5 md:p-6">
           <h2 className="display text-xl font-semibold text-graphite">Recommendation Activity</h2>
           <div className="mt-4 grid gap-3">
-            {(reco?.recommendations ?? []).map((item) => (
-              <article key={item.item} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="display text-base font-semibold text-graphite">{item.label}</h3>
-                  <span className="text-xs font-bold uppercase tracking-[0.08em] text-muted">{item.urgency}</span>
-                </div>
-                <p className="mt-1 text-sm text-slate-700">
-                  Recommended drop: {item.recommended_units} units (baseline {item.baseline_units} units)
-                </p>
-                <p className="mt-1 text-xs text-muted">{item.reason}</p>
-              </article>
-            ))}
+            {(reco?.recommendations ?? []).map((item) => {
+              const unitLabel = unitLabelFromItem(item);
+              return (
+                <article key={item.item} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="display text-base font-semibold text-graphite">{item.label}</h3>
+                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-muted">{item.urgency}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Recommended drop: {item.recommended_units} {unitLabel} (baseline {item.baseline_units} {unitLabel})
+                  </p>
+                  <p className="mt-1 text-xs text-muted">{item.reason}</p>
+                </article>
+              );
+            })}
 
             {reco?.recommendations.length ? null : (
               <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">Waiting for recommendations...</div>

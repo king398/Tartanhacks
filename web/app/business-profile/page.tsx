@@ -18,11 +18,16 @@ const SERVICE_MODEL_OPTIONS = [
   "Pickup + Delivery",
 ];
 
+function normalizeUnitLabel(value: string | null | undefined): string {
+  const normalized = (value ?? "").trim();
+  return normalized || "units";
+}
+
 function normalizeMenuItem(item: MenuItemProfile): MenuItemProfile {
   const legacyItem = item as MenuItemProfile & { max_batch_size?: number };
   const maxUnitSize = Math.max(1, Math.min(5000, Math.round(item.max_unit_size ?? legacyItem.max_batch_size ?? 64)));
   const batchSize = Math.max(1, Math.min(Math.round(item.batch_size), maxUnitSize));
-  return { ...item, batch_size: batchSize, max_unit_size: maxUnitSize };
+  return { ...item, unit_label: normalizeUnitLabel(item.unit_label), batch_size: batchSize, max_unit_size: maxUnitSize };
 }
 
 function normalizeProfile(profile: BusinessProfile): BusinessProfile {
@@ -35,6 +40,7 @@ function normalizeProfile(profile: BusinessProfile): BusinessProfile {
 function menuTemplate(): MenuItemProfile {
   return {
     label: "New Menu Item",
+    unit_label: "units",
     units_per_order: 0.3,
     batch_size: 6,
     max_unit_size: 24,
@@ -106,12 +112,20 @@ export default function BusinessProfilePage() {
     setProfileDraft((prev) => (prev ? { ...prev, [field]: numericValue } : prev));
   };
 
-  const onMenuTextChange = (index: number, field: "label", value: string) => {
+  const onMenuTextChange = (index: number, field: "label" | "unit_label", value: string) => {
     setProfileDraft((prev) => {
       if (!prev) {
         return prev;
       }
-      const nextItems = prev.menu_items.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item));
+      const nextItems = prev.menu_items.map((item, itemIndex) => {
+        if (itemIndex !== index) {
+          return item;
+        }
+        if (field === "unit_label") {
+          return { ...item, unit_label: value };
+        }
+        return { ...item, [field]: value };
+      });
       return { ...prev, menu_items: nextItems };
     });
   };
@@ -398,8 +412,10 @@ export default function BusinessProfilePage() {
                 </button>
               </div>
 
-              {profileDraft.menu_items.map((item, index) => (
-                <article key={item.key ?? `${item.label}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+              {profileDraft.menu_items.map((item, index) => {
+                const itemUnitLabel = normalizeUnitLabel(item.unit_label);
+                return (
+                  <article key={item.key ?? `${item.label}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="display text-sm font-semibold text-graphite">Item {index + 1}</p>
                     <button
@@ -422,7 +438,16 @@ export default function BusinessProfilePage() {
                       />
                     </label>
                     <label className="text-xs text-slate-700">
-                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Units / Order</span>
+                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Unit Label</span>
+                      <input
+                        value={item.unit_label}
+                        onChange={(event) => onMenuTextChange(index, "unit_label", event.target.value)}
+                        placeholder="e.g., cups, fillets, strips"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                      />
+                    </label>
+                    <label className="text-xs text-slate-700">
+                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Per Order ({itemUnitLabel})</span>
                       <input
                         type="number"
                         min={0.01}
@@ -433,7 +458,7 @@ export default function BusinessProfilePage() {
                       />
                     </label>
                     <label className="text-xs text-slate-700">
-                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Batch Size</span>
+                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Batch Size ({itemUnitLabel})</span>
                       <input
                         type="number"
                         min={1}
@@ -445,7 +470,7 @@ export default function BusinessProfilePage() {
                       />
                     </label>
                     <label className="text-xs text-slate-700">
-                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Max Unit Size</span>
+                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Max Unit Size ({itemUnitLabel})</span>
                       <input
                         type="number"
                         min={1}
@@ -457,7 +482,7 @@ export default function BusinessProfilePage() {
                       />
                     </label>
                     <label className="text-xs text-slate-700">
-                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Baseline Units</span>
+                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Baseline Drop ({itemUnitLabel})</span>
                       <input
                         type="number"
                         min={0}
@@ -479,8 +504,9 @@ export default function BusinessProfilePage() {
                       />
                     </label>
                   </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

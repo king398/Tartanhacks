@@ -10,6 +10,7 @@ type RecommendationLogEntry = {
   queueState: string;
   projectedCustomers: number;
   topItemLabel: string;
+  topItemUnitLabel: string;
   topDeltaUnits: number;
   estimatedWaitReductionMin: number;
   estimatedRevenueProtectedUsd: number;
@@ -24,6 +25,22 @@ const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
 
 function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+function unitLabelFromItem(item: RecommendationItem | null | undefined): string {
+  const normalized = item?.unit_label?.trim();
+  return normalized && normalized.length ? normalized : "units";
+}
+
+function deriveRecommendationNumbers(item: RecommendationItem): {
+  baselineUnits: number;
+  recommendedUnits: number;
+  deltaUnits: number;
+} {
+  const baselineUnits = Number.isFinite(item.baseline_units) ? item.baseline_units : 0;
+  const recommendedUnits = Number.isFinite(item.recommended_units) ? item.recommended_units : baselineUnits;
+  const deltaUnits = Number.isFinite(item.delta_units) ? item.delta_units : recommendedUnits - baselineUnits;
+  return { baselineUnits, recommendedUnits, deltaUnits };
 }
 
 export default function RecommendationActivityPage() {
@@ -45,10 +62,17 @@ export default function RecommendationActivityPage() {
         setMetrics(metricsData);
         setReco(recoData);
         setActivityLog((prev) => {
-          const topDeltaItem = [...recoData.recommendations].sort((a, b) => Math.abs(b.delta_units) - Math.abs(a.delta_units))[0];
+          const topDeltaItem = [...recoData.recommendations].sort((a, b) => {
+            const aDelta = deriveRecommendationNumbers(a).deltaUnits;
+            const bDelta = deriveRecommendationNumbers(b).deltaUnits;
+            return Math.abs(bDelta) - Math.abs(aDelta);
+          })[0];
           const decisionSignature = [
             recoData.forecast.queue_state,
-            ...recoData.recommendations.map((item) => `${item.item}:${item.delta_units}`),
+            ...recoData.recommendations.map((item) => {
+              const { deltaUnits } = deriveRecommendationNumbers(item);
+              return `${item.item}:${deltaUnits}`;
+            }),
           ].join("|");
 
           if (prev[0]?.signature === decisionSignature) {
@@ -60,7 +84,8 @@ export default function RecommendationActivityPage() {
             queueState: recoData.forecast.queue_state,
             projectedCustomers: recoData.forecast.projected_customers,
             topItemLabel: topDeltaItem?.label ?? "No item",
-            topDeltaUnits: topDeltaItem?.delta_units ?? 0,
+            topItemUnitLabel: unitLabelFromItem(topDeltaItem),
+            topDeltaUnits: topDeltaItem ? deriveRecommendationNumbers(topDeltaItem).deltaUnits : 0,
             estimatedWaitReductionMin: recoData.impact.estimated_wait_reduction_min,
             estimatedRevenueProtectedUsd: recoData.impact.estimated_revenue_protected_usd,
             signature: decisionSignature,
@@ -148,8 +173,11 @@ export default function RecommendationActivityPage() {
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {(reco?.recommendations ?? []).map((item) => {
             const maxUnitSize = item.max_unit_size;
-            const recommendedUnits = maxUnitSize !== undefined ? Math.min(item.recommended_units, maxUnitSize) : item.recommended_units;
-            const baselineUnits = maxUnitSize !== undefined ? Math.min(item.baseline_units, maxUnitSize) : item.baseline_units;
+            const numbers = deriveRecommendationNumbers(item);
+            const unitLabel = unitLabelFromItem(item);
+            const recommendedUnits = maxUnitSize !== undefined ? Math.min(numbers.recommendedUnits, maxUnitSize) : numbers.recommendedUnits;
+            const baselineUnits = maxUnitSize !== undefined ? Math.min(numbers.baselineUnits, maxUnitSize) : numbers.baselineUnits;
+            const deltaUnits = recommendedUnits - baselineUnits;
 
             return (
               <article key={item.item} className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -161,14 +189,24 @@ export default function RecommendationActivityPage() {
                 </div>
 
                 <p className="mt-2 text-sm text-slate-700">
-                  Recommended drop: <span className="font-semibold">{recommendedUnits} units</span>
+                  Recommended drop: <span className="font-semibold">{recommendedUnits} {unitLabel}</span>
                 </p>
                 <p className="text-sm text-muted">
-                  Baseline drop: {baselineUnits} units
+                  Baseline drop: {baselineUnits} {unitLabel}
                 </p>
+                {item.ready_inventory_units !== undefined || item.fryer_inventory_units !== undefined ? (
+                  <p className="text-sm text-muted">
+                    Inventory: ready {item.ready_inventory_units ?? 0} | fryer {item.fryer_inventory_units ?? 0} {unitLabel}
+                  </p>
+                ) : null}
                 <p className="mt-1 text-sm text-slate-700">
-                  Delta: <span className="font-semibold">{item.delta_units > 0 ? `+${item.delta_units}` : item.delta_units} units</span>
+                  Delta: <span className="font-semibold">{deltaUnits > 0 ? `+${deltaUnits}` : deltaUnits} {unitLabel}</span>
                 </p>
+                {item.next_decision_in_sec !== undefined ? (
+                  <p className="mt-1 text-xs text-muted">
+                    {item.decision_locked ? `Next decision in ${item.next_decision_in_sec}s.` : `Decision refreshed. Next update in ${item.next_decision_in_sec}s.`}
+                  </p>
+                ) : null}
                 <p className="mt-2 text-xs text-muted">{item.reason}</p>
               </article>
             );
@@ -194,7 +232,7 @@ export default function RecommendationActivityPage() {
                     <p className="text-xs uppercase tracking-[0.08em] text-muted">{entry.queueState}</p>
                   </div>
                   <p className="mt-1 text-xs text-muted">
-                    Top action: {entry.topItemLabel} ({entry.topDeltaUnits > 0 ? `+${entry.topDeltaUnits}` : entry.topDeltaUnits} units)
+                    Top action: {entry.topItemLabel} ({entry.topDeltaUnits > 0 ? `+${entry.topDeltaUnits}` : entry.topDeltaUnits} {entry.topItemUnitLabel})
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     Projected load {entry.projectedCustomers.toFixed(1)} customers | Wait reduction {entry.estimatedWaitReductionMin.toFixed(1)} min |

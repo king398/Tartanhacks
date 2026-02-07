@@ -83,6 +83,7 @@ class StreamSourcePayload(BaseModel):
 class MenuItemPayload(BaseModel):
     key: str | None = Field(default=None, max_length=64)
     label: str = Field(min_length=1, max_length=80)
+    unit_label: str = Field(default="units", min_length=1, max_length=32)
     units_per_order: float = Field(gt=0.0, le=10.0)
     batch_size: int = Field(ge=1, le=500)
     max_unit_size: int = Field(
@@ -109,6 +110,12 @@ class MenuItemPayload(BaseModel):
         if not stripped:
             raise ValueError("label must not be empty")
         return stripped
+
+    @field_validator("unit_label")
+    @classmethod
+    def normalize_unit_label(cls, value: str) -> str:
+        stripped = value.strip()
+        return stripped or "units"
 
     @model_validator(mode="after")
     def validate_unit_limit(self) -> MenuItemPayload:
@@ -145,6 +152,7 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
         {
             "key": "fillets",
             "label": "Chicken Fillets",
+            "unit_label": "fillets",
             "units_per_order": 0.58,
             "batch_size": 8,
             "max_unit_size": 24,
@@ -154,6 +162,7 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
         {
             "key": "nuggets",
             "label": "Nuggets",
+            "unit_label": "cups",
             "units_per_order": 0.36,
             "batch_size": 6,
             "max_unit_size": 20,
@@ -163,6 +172,7 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
         {
             "key": "fries",
             "label": "Fries",
+            "unit_label": "cups",
             "units_per_order": 0.72,
             "batch_size": 10,
             "max_unit_size": 28,
@@ -172,6 +182,7 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
         {
             "key": "strips",
             "label": "Strips",
+            "unit_label": "strips",
             "units_per_order": 0.15,
             "batch_size": 8,
             "max_unit_size": 20,
@@ -184,10 +195,10 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
 
 def _build_processor(video_source: str, *, camera_id: str) -> VideoProcessor:
     common_kwargs = dict(
-        model_name=os.getenv("YOLO_MODEL", "yolo11n.pt"),
+        model_name=os.getenv("YOLO_MODEL", "yolo26m.pt"),
         sample_fps=_env_float("SAMPLE_FPS", 30.0),
         iou=_env_float("IOU_THRESHOLD", 0.5),
-        imgsz=_env_int("IMG_SIZE", 640),
+        imgsz=_env_int("IMG_SIZE", 960),
         people_per_car=_env_float("PEOPLE_PER_CAR", 1.5),
         avg_service_time_sec=AVG_SERVICE_TIME_SEC,
         device=os.getenv("YOLO_DEVICE", "cuda:0"),
@@ -206,7 +217,7 @@ def _build_processor(video_source: str, *, camera_id: str) -> VideoProcessor:
 
     return VideoProcessor(
         video_path=video_source,
-        conf=_env_float("IN_STORE_CONF_THRESHOLD", 0.2),
+        conf=_env_float("IN_STORE_CONF_THRESHOLD", 0.15),
         drive_thru_roi=None,
         in_store_roi=None,
         detect_drive_thru_vehicles=False,
@@ -254,6 +265,7 @@ def _build_item_profiles(menu_items: list[MenuItemPayload]) -> list[ItemProfile]
                 max_unit_size=int(item.max_unit_size),
                 baseline_drop_units=int(item.baseline_drop_units),
                 unit_cost_usd=float(item.unit_cost_usd),
+                unit_label=item.unit_label,
             )
         )
 
@@ -392,6 +404,18 @@ def _enforce_recommendation_limits(
     *,
     profiles_by_key: dict[str, ItemProfile],
 ) -> dict[str, Any]:
+    def _coerce_units(value: Any, fallback: int) -> int:
+        try:
+            return int(round(float(value)))
+        except (TypeError, ValueError):
+            return int(fallback)
+
+    def _batch_units(value: Any, *, batch_size: int, fallback: int) -> int:
+        try:
+            return int(round(float(value) * float(batch_size)))
+        except (TypeError, ValueError):
+            return int(fallback)
+
     normalized = deepcopy(response)
     items = normalized.get("recommendations", [])
     if not isinstance(items, list):
@@ -407,8 +431,35 @@ def _enforce_recommendation_limits(
             continue
 
         max_unit_size = int(profile.max_unit_size)
-        raw_recommended_units = int(item.get("recommended_units", item.get("baseline_units", profile.baseline_drop_units)) or 0)
-        raw_baseline_units = int(item.get("baseline_units", profile.baseline_drop_units) or 0)
+        unit_label = (profile.unit_label or "units").strip() or "units"
+
+        baseline_units_value = item.get("baseline_units")
+        if baseline_units_value is None:
+            legacy_baseline_batches = item.get("baseline_batches")
+            if legacy_baseline_batches is None:
+                raw_baseline_units = int(profile.baseline_drop_units)
+            else:
+                raw_baseline_units = _batch_units(
+                    legacy_baseline_batches,
+                    batch_size=int(profile.batch_size),
+                    fallback=int(profile.baseline_drop_units),
+                )
+        else:
+            raw_baseline_units = _coerce_units(baseline_units_value, int(profile.baseline_drop_units))
+
+        recommended_units_value = item.get("recommended_units")
+        if recommended_units_value is None:
+            legacy_recommended_batches = item.get("recommended_batches")
+            if legacy_recommended_batches is None:
+                raw_recommended_units = raw_baseline_units
+            else:
+                raw_recommended_units = _batch_units(
+                    legacy_recommended_batches,
+                    batch_size=int(profile.batch_size),
+                    fallback=raw_baseline_units,
+                )
+        else:
+            raw_recommended_units = _coerce_units(recommended_units_value, raw_baseline_units)
 
         recommended_units = min(max(0, raw_recommended_units), max_unit_size)
         baseline_units = min(max(0, raw_baseline_units), max_unit_size)
@@ -426,11 +477,12 @@ def _enforce_recommendation_limits(
         item["baseline_units"] = baseline_units
         item["delta_units"] = recommended_units - baseline_units
         item["max_unit_size"] = max_unit_size
+        item["unit_label"] = unit_label
 
         if was_clamped:
             reason = str(item.get("reason", "")).strip()
             clamp_note = (
-                f"Capped at {max_unit_size} units based on configured max unit size."
+                f"Capped at {max_unit_size} {unit_label} based on configured max unit size."
             )
             if clamp_note not in reason:
                 item["reason"] = f"{reason} {clamp_note}".strip()
