@@ -43,6 +43,18 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _parse_roi(value: str | None) -> tuple[float, float, float, float] | None:
     if value is None or not value.strip():
         return None
@@ -194,34 +206,47 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
 
 
 def _build_processor(video_source: str, *, camera_id: str) -> VideoProcessor:
+    camera_prefix = camera_id.upper()
+    default_model_name = os.getenv("YOLO_MODEL", "yolo11s.pt")
+    default_trt_engine = os.getenv("YOLO_TRT_ENGINE", "")
+    default_sample_fps = _env_float("SAMPLE_FPS", 30.0)
+    default_iou = _env_float("IOU_THRESHOLD", 0.5)
+    default_img_size = _env_int("IMG_SIZE", 640)
+
     common_kwargs = dict(
-        model_name=os.getenv("YOLO_MODEL", "yolo26m.pt"),
-        sample_fps=_env_float("SAMPLE_FPS", 30.0),
-        iou=_env_float("IOU_THRESHOLD", 0.5),
-        imgsz=_env_int("IMG_SIZE", 960),
+        model_name=os.getenv(f"{camera_prefix}_YOLO_MODEL", default_model_name),
+        sample_fps=_env_float(f"{camera_prefix}_SAMPLE_FPS", default_sample_fps),
+        iou=_env_float(f"{camera_prefix}_IOU_THRESHOLD", default_iou),
+        imgsz=_env_int(f"{camera_prefix}_IMG_SIZE", default_img_size),
         people_per_car=_env_float("PEOPLE_PER_CAR", 1.5),
         avg_service_time_sec=AVG_SERVICE_TIME_SEC,
         device=os.getenv("YOLO_DEVICE", "cuda:0"),
+        use_fp16=_env_bool("YOLO_FP16", True),
+        compile_model=_env_bool("YOLO_COMPILE", True),
+        use_tensorrt=_env_bool("YOLO_TENSORRT", False),
+        tensorrt_engine_path=os.getenv(f"{camera_prefix}_YOLO_TRT_ENGINE", default_trt_engine),
     )
 
     if camera_id == "drive_thru":
         return VideoProcessor(
             video_path=video_source,
-            conf=_env_float("DRIVE_THRU_CONF_THRESHOLD", _env_float("CONF_THRESHOLD", 0.35)),
+            conf=_env_float("DRIVE_THRU_CONF_THRESHOLD", _env_float("CONF_THRESHOLD", 0.25)),
             drive_thru_roi=_parse_roi(os.getenv("DRIVE_THRU_ROI")),
             in_store_roi=None,
             detect_drive_thru_vehicles=True,
             detect_in_store_people=False,
+            vehicle_count_hold_sec=_env_float("DRIVE_THRU_COUNT_HOLD_SEC", 0.6),
             **common_kwargs,
         )
 
     return VideoProcessor(
         video_path=video_source,
-        conf=_env_float("IN_STORE_CONF_THRESHOLD", 0.15),
+        conf=_env_float("IN_STORE_CONF_THRESHOLD", _env_float("CONF_THRESHOLD", 0.15)),
         drive_thru_roi=None,
-        in_store_roi=None,
+        in_store_roi=_parse_roi(os.getenv("IN_STORE_ROI")),
         detect_drive_thru_vehicles=False,
         detect_in_store_people=True,
+        vehicle_count_hold_sec=0.0,
         **common_kwargs,
     )
 

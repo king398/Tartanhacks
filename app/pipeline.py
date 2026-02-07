@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -7,10 +8,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -61,7 +65,7 @@ class VideoProcessor:
         sample_fps: float = 30.0,
         conf: float = 0.35,
         iou: float = 0.5,
-        imgsz: int = 960,
+        imgsz: int = 640,
         people_per_car: float = 1.5,
         avg_service_time_sec: float = 45.0,
         drive_thru_roi: tuple[float, float, float, float] | None = None,
@@ -69,10 +73,17 @@ class VideoProcessor:
         detect_drive_thru_vehicles: bool = True,
         detect_in_store_people: bool = True,
         device: str | int | None = "cuda:0",
+        use_fp16: bool = True,
+        compile_model: bool = True,
+        use_tensorrt: bool = False,
+        tensorrt_engine_path: str | Path | None = None,
+        vehicle_count_hold_sec: float = 0.6,
     ) -> None:
+        self.model_name = str(model_name)
         self.video_path = str(video_path)
         self._source_lock = threading.Lock()
         self._source_version = 0
+        self._youtube_url_cache: dict[str, tuple[str, float]] = {}
         self.sample_fps = max(1.0, sample_fps)
         self.conf = conf
         self.iou = iou
@@ -84,11 +95,21 @@ class VideoProcessor:
         self.detect_drive_thru_vehicles = detect_drive_thru_vehicles
         self.detect_in_store_people = detect_in_store_people
         self.device = self._resolve_device(device)
+        is_cuda_device = isinstance(self.device, int) or str(self.device).lower().startswith("cuda")
+        self.use_fp16 = bool(use_fp16 and is_cuda_device)
+        self.compile_model = bool(compile_model and is_cuda_device)
+        self.use_tensorrt = bool(use_tensorrt and is_cuda_device)
+        self.tensorrt_engine_path = str(tensorrt_engine_path).strip() if tensorrt_engine_path else ""
+        self._using_tensorrt_engine = False
+        self._active_model_name = self.model_name
+        self.vehicle_count_hold_sec = max(0.0, float(vehicle_count_hold_sec))
+        self._last_vehicle_count = 0
+        self._last_vehicle_seen_at = 0.0
         self.rtsp_transport = self._parse_rtsp_transport(os.getenv("RTSP_TRANSPORT", "tcp"))
         self.capture_open_timeout_msec = self._parse_positive_int(os.getenv("CAPTURE_OPEN_TIMEOUT_MSEC"), 10000)
         self.capture_read_timeout_msec = self._parse_positive_int(os.getenv("CAPTURE_READ_TIMEOUT_MSEC"), 10000)
 
-        self._model = YOLO(model_name)
+        self._model = self._load_model()
         self._vehicle_labels = {"car", "truck", "motorcycle", "bus"}
         self._person_labels = {"person", "pedestrian", "human", "man", "woman", "boy", "girl"}
         self._class_labels_by_id = self._build_class_label_map()
@@ -138,6 +159,9 @@ class VideoProcessor:
             if normalized != self.video_path:
                 self.video_path = normalized
                 self._source_version += 1
+                self._youtube_url_cache.clear()
+                self._last_vehicle_count = 0
+                self._last_vehicle_seen_at = 0.0
             return self.video_path
 
     def _get_video_source_state(self) -> tuple[str, int]:
@@ -150,7 +174,12 @@ class VideoProcessor:
         last_frame_tick: float | None = None
         while not self._stop_event.is_set():
             video_path, source_version = self._get_video_source_state()
-            cap = self._open_capture(video_path)
+            try:
+                cap = self._open_capture(video_path)
+            except ValueError as exc:
+                self._draw_error_frame(str(exc), stream_source=video_path)
+                self._stop_event.wait(1.0)
+                continue
             if not cap.isOpened():
                 self._draw_error_frame(
                     "Cannot open stream. Check URL, credentials, network, and codec support.",
@@ -186,7 +215,13 @@ class VideoProcessor:
                 last_frame_tick = now
 
                 start_time = time.perf_counter()
-                annotated, snapshot = self._infer(frame, frame_number, smoothed_fps, stream_source=video_path)
+                try:
+                    annotated, snapshot = self._infer(frame, frame_number, smoothed_fps, stream_source=video_path)
+                except Exception as exc:
+                    LOGGER.exception("Inference loop error on source '%s'", video_path)
+                    self._draw_error_frame(f"Inference error: {exc}", stream_source=video_path)
+                    self._stop_event.wait(0.2)
+                    continue
 
                 with self._lock:
                     self._latest_frame = annotated
@@ -252,7 +287,8 @@ class VideoProcessor:
                     person_ids.add(identity)
                     self._draw_box(draw, x1, y1, x2, y2, f"{label} #{identity}", (78, 204, 163))
 
-        car_count = len(vehicle_ids)
+        raw_car_count = len(vehicle_ids)
+        car_count = self._stabilize_vehicle_count(raw_car_count)
         est_passengers = round(car_count * self.people_per_car, 1)
         person_count = len(person_ids)
         total_customers = round(est_passengers + person_count, 1)
@@ -290,31 +326,161 @@ class VideoProcessor:
         )
         return draw, snapshot
 
+    def _stabilize_vehicle_count(self, raw_car_count: int) -> int:
+        if not self.detect_drive_thru_vehicles:
+            return raw_car_count
+
+        hold_sec = self.vehicle_count_hold_sec
+        if hold_sec <= 0.0:
+            self._last_vehicle_count = raw_car_count
+            if raw_car_count > 0:
+                self._last_vehicle_seen_at = time.monotonic()
+            return raw_car_count
+
+        now = time.monotonic()
+        if raw_car_count > 0:
+            self._last_vehicle_count = raw_car_count
+            self._last_vehicle_seen_at = now
+            return raw_car_count
+
+        if (now - self._last_vehicle_seen_at) <= hold_sec:
+            return self._last_vehicle_count
+
+        self._last_vehicle_count = 0
+        return 0
+
     def _run_inference(self, frame: np.ndarray):
-        # For in-store counting, detection is more reliable than tracker association.
-        if self.detect_in_store_people and not self.detect_drive_thru_vehicles:
+        compile_flag = self.compile_model and not self._using_tensorrt_engine
+
+        # For single-domain camera views, detection mode is more robust for fast-moving objects.
+        if self.detect_drive_thru_vehicles != self.detect_in_store_people:
             kwargs: dict[str, Any] = dict(
                 source=frame,
                 device=self.device,
                 conf=self.conf,
                 iou=self.iou,
                 imgsz=self.imgsz,
+                half=self.use_fp16,
+                compile=compile_flag,
                 verbose=False,
             )
-            if self._person_class_ids:
+            if self.detect_drive_thru_vehicles and self._vehicle_class_ids:
+                kwargs["classes"] = sorted(self._vehicle_class_ids)
+            elif self.detect_in_store_people and self._person_class_ids:
                 kwargs["classes"] = sorted(self._person_class_ids)
-            return self._model.predict(**kwargs)
+            return self._predict_with_compile_fallback(track=False, kwargs=kwargs)
 
-        return self._model.track(
-            source=frame,
-            persist=True,
-            tracker="bytetrack.yaml",
-            device=self.device,
-            conf=self.conf,
-            iou=self.iou,
-            imgsz=self.imgsz,
-            verbose=False,
+        return self._predict_with_compile_fallback(
+            track=True,
+            kwargs=dict(
+                source=frame,
+                persist=True,
+                tracker="bytetrack.yaml",
+                device=self.device,
+                conf=self.conf,
+                iou=self.iou,
+                imgsz=self.imgsz,
+                half=self.use_fp16,
+                compile=compile_flag,
+                verbose=False,
+            ),
         )
+
+    def _predict_with_compile_fallback(self, *, track: bool, kwargs: dict[str, Any]):
+        try:
+            if track:
+                return self._model.track(**kwargs)
+            return self._model.predict(**kwargs)
+        except TypeError as exc:
+            error_text = str(exc)
+            if kwargs.get("compile") and "does not support len()" in error_text:
+                LOGGER.warning(
+                    "Disabling YOLO_COMPILE after runtime incompatibility (%s). Retrying without compile.",
+                    error_text,
+                )
+                self.compile_model = False
+                self._model.predictor = None
+                retry_kwargs = dict(kwargs)
+                retry_kwargs["compile"] = False
+                if track:
+                    return self._model.track(**retry_kwargs)
+                return self._model.predict(**retry_kwargs)
+            raise
+
+    def _load_model(self) -> YOLO:
+        if not self.use_tensorrt:
+            self._active_model_name = self.model_name
+            return YOLO(self.model_name)
+
+        requested_engine = self._resolve_tensorrt_engine_path()
+        if requested_engine is not None and requested_engine.exists():
+            self._using_tensorrt_engine = True
+            self.compile_model = False
+            self._active_model_name = str(requested_engine)
+            LOGGER.info("Using TensorRT engine: %s", requested_engine)
+            return YOLO(str(requested_engine))
+
+        if self.model_name.lower().endswith(".engine"):
+            self._using_tensorrt_engine = True
+            self.compile_model = False
+            self._active_model_name = self.model_name
+            LOGGER.info("Using TensorRT engine: %s", self.model_name)
+            return YOLO(self.model_name)
+
+        if not self.model_name.lower().endswith(".pt"):
+            LOGGER.warning(
+                "YOLO_TENSORRT is enabled, but YOLO_MODEL='%s' is not a .pt/.engine file. Falling back to default runtime.",
+                self.model_name,
+            )
+            self.use_tensorrt = False
+            self._active_model_name = self.model_name
+            return YOLO(self.model_name)
+
+        try:
+            LOGGER.info("Exporting TensorRT engine from %s", self.model_name)
+            export_model = YOLO(self.model_name)
+            export_model.export(
+                format="engine",
+                device=self.device,
+                imgsz=self.imgsz,
+                half=self.use_fp16,
+                verbose=False,
+            )
+            default_engine = Path(self.model_name).with_suffix(".engine")
+            chosen_engine: Path | None = None
+            if requested_engine is not None and requested_engine.exists():
+                chosen_engine = requested_engine
+            elif default_engine.exists():
+                chosen_engine = default_engine
+
+            if chosen_engine is None:
+                raise FileNotFoundError("TensorRT export finished but no engine file was found.")
+
+            self._using_tensorrt_engine = True
+            self.compile_model = False
+            self._active_model_name = str(chosen_engine)
+            LOGGER.info("TensorRT engine ready: %s", chosen_engine)
+            return YOLO(str(chosen_engine))
+        except Exception as exc:
+            LOGGER.warning(
+                "TensorRT setup failed for '%s' (%s). Falling back to standard model runtime.",
+                self.model_name,
+                exc,
+            )
+            self.use_tensorrt = False
+            self._using_tensorrt_engine = False
+            self._active_model_name = self.model_name
+            return YOLO(self.model_name)
+
+    def _resolve_tensorrt_engine_path(self) -> Path | None:
+        if self.tensorrt_engine_path:
+            return Path(self.tensorrt_engine_path).expanduser()
+        if self.model_name.lower().endswith(".engine"):
+            return Path(self.model_name).expanduser()
+        model_path = Path(self.model_name).expanduser()
+        if model_path.suffix.lower() == ".pt":
+            return model_path.with_suffix(".engine")
+        return None
 
     def _build_class_label_map(self) -> dict[int, str]:
         names = self._model.names
@@ -525,8 +691,126 @@ class VideoProcessor:
             return int(candidate)
         return candidate
 
+    @staticmethod
+    def _is_youtube_url(source: str) -> bool:
+        candidate = source.strip()
+        if not candidate:
+            return False
+        lowered = candidate.lower()
+        if lowered.startswith(
+            (
+                "youtube.com/",
+                "www.youtube.com/",
+                "m.youtube.com/",
+                "music.youtube.com/",
+                "youtu.be/",
+            )
+        ):
+            return True
+
+        parse_target = candidate if "://" in candidate else f"https://{candidate}"
+        try:
+            parsed = urlparse(parse_target)
+        except ValueError:
+            return False
+        host = parsed.netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if host == "youtu.be":
+            return True
+        return host == "youtube.com" or host.endswith(".youtube.com")
+
+    @classmethod
+    def _stream_url_from_ydlp_info(cls, info: dict[str, Any]) -> str | None:
+        direct_url = info.get("url")
+        if isinstance(direct_url, str) and direct_url.strip():
+            return direct_url.strip()
+
+        formats = info.get("formats")
+        if not isinstance(formats, list):
+            return None
+
+        best_url: str | None = None
+        best_score = float("-inf")
+
+        for fmt in formats:
+            if not isinstance(fmt, dict):
+                continue
+
+            url = fmt.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+
+            protocol = str(fmt.get("protocol", "")).lower()
+            if protocol in {"https", "http", "m3u8", "m3u8_native", "http_dash_segments"}:
+                protocol_score = 1000.0
+            else:
+                protocol_score = 0.0
+
+            height = float(fmt.get("height") or 0.0)
+            fps = float(fmt.get("fps") or 0.0)
+            bitrate = float(fmt.get("tbr") or 0.0)
+            score = protocol_score + (height * 1.0) + (fps * 0.1) + (bitrate * 0.01)
+            if score > best_score:
+                best_score = score
+                best_url = url.strip()
+
+        return best_url
+
+    def _resolve_youtube_url(self, source: str) -> str:
+        now = time.time()
+        cached = self._youtube_url_cache.get(source)
+        if cached is not None:
+            cached_url, cached_expiry = cached
+            if now < cached_expiry:
+                return cached_url
+
+        try:
+            import yt_dlp
+        except Exception as exc:
+            raise ValueError(
+                "YouTube links require the optional dependency `yt-dlp` (`pip install yt-dlp`)."
+            ) from exc
+
+        options = {
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "skip_download": True,
+            "extract_flat": False,
+            "format": "best",
+        }
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(source, download=False)
+        except Exception as exc:
+            raise ValueError(f"Unable to resolve YouTube stream URL: {exc}") from exc
+
+        resolved_info = info if isinstance(info, dict) else None
+        entries = resolved_info.get("entries") if isinstance(resolved_info, dict) else None
+        if entries is not None:
+            first_entry = next((entry for entry in entries if isinstance(entry, dict)), None)
+            resolved_info = first_entry
+
+        if not isinstance(resolved_info, dict):
+            raise ValueError("Unable to resolve YouTube stream URL: no video metadata found.")
+
+        resolved_url = self._stream_url_from_ydlp_info(resolved_info)
+        if not resolved_url:
+            raise ValueError("Unable to resolve YouTube stream URL: no playable format found.")
+
+        # YouTube signed stream URLs can expire quickly; keep cache short.
+        self._youtube_url_cache[source] = (resolved_url, now + 120.0)
+        return resolved_url
+
     def _open_capture(self, source: str) -> cv2.VideoCapture:
         normalized = self._normalize_capture_source(source)
+
+        if isinstance(normalized, str) and self._is_youtube_url(normalized):
+            youtube_source = normalized
+            if "://" not in youtube_source:
+                youtube_source = f"https://{youtube_source.lstrip('/')}"
+            normalized = self._resolve_youtube_url(youtube_source)
 
         if isinstance(normalized, str) and normalized.lower().startswith(("rtsp://", "rtsps://")):
             options = (
@@ -535,6 +819,12 @@ class VideoProcessor:
                 f"rw_timeout;{self.capture_read_timeout_msec * 1000}"
             )
             os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = options
+            cap = cv2.VideoCapture(normalized, cv2.CAP_FFMPEG)
+            if cap.isOpened():
+                return cap
+            cap.release()
+
+        if isinstance(normalized, str) and normalized.lower().startswith(("http://", "https://")):
             cap = cv2.VideoCapture(normalized, cv2.CAP_FFMPEG)
             if cap.isOpened():
                 return cap

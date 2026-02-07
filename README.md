@@ -101,7 +101,8 @@ Next.js dashboard URL:
 - `http://localhost:3000/business-profile`
 
 Use **Custom Stream Source** on the dashboard to switch to your own live stream without restarting the backend.
-You can provide RTSP/HTTP URLs, local file paths, or a webcam index like `0`.
+You can provide RTSP/HTTP URLs, local file paths, a webcam index like `0`, or a YouTube video/live URL.
+YouTube URLs are resolved to a playable media stream with `yt-dlp`.
 
 Use **Business Profile & Menu** on the dashboard to customize your business name, ticket assumptions, and menu items.
 Recommendations and impact values update from this profile, including per-item unit labels (for example `cups`, `fillets`, `strips`), and you can reset to a sample business with one click.
@@ -109,14 +110,26 @@ Recommendations and impact values update from this profile, including per-item u
 ## Key Environment Variables
 
 - `VIDEO_PATH`: input video path.
-- `YOLO_MODEL`: default `yolo26m.pt` (larger/more accurate).
+- `YOLO_MODEL`: default `yolo11s.pt` (global default model for all cameras).
+- `DRIVE_THRU_YOLO_MODEL` / `IN_STORE_YOLO_MODEL`: optional per-camera model overrides.
 - `YOLO_DEVICE`: default `cuda:0` to target GPU (also supports `auto`, `0`, or `cpu`).
+- `YOLO_FP16`: run FP16 inference on CUDA (default `true`).
+- `YOLO_COMPILE`: enable `torch.compile` via Ultralytics predictor setup (default `true`).
+- `YOLO_TENSORRT`: enable TensorRT engine usage/export on CUDA (default `false`).
+- `YOLO_TRT_ENGINE`: optional explicit `.engine` path; if unset and `YOLO_MODEL` is `.pt`, the app uses `{YOLO_MODEL stem}.engine`.
+- `DRIVE_THRU_YOLO_TRT_ENGINE` / `IN_STORE_YOLO_TRT_ENGINE`: optional per-camera engine overrides.
 - `DRIVE_THRU_VIDEO_PATH`: optional source override for drive-thru camera.
 - `IN_STORE_VIDEO_PATH`: optional source override for in-store camera (defaults to `sample1.mp4`).
-- `SAMPLE_FPS`: processed frames/sec (default `30`).
-- `IMG_SIZE`: model input image size (default `960`).
-- `DRIVE_THRU_CONF_THRESHOLD`: optional confidence override for drive-thru detections.
+- `SAMPLE_FPS`: global default processed frames/sec (default `30`).
+- `DRIVE_THRU_SAMPLE_FPS` / `IN_STORE_SAMPLE_FPS`: optional per-camera FPS overrides.
+- `IOU_THRESHOLD`: global default IoU threshold (default `0.50`).
+- `DRIVE_THRU_IOU_THRESHOLD` / `IN_STORE_IOU_THRESHOLD`: optional per-camera IoU overrides.
+- `IMG_SIZE`: global default model input image size (default `640`).
+- `DRIVE_THRU_IMG_SIZE` / `IN_STORE_IMG_SIZE`: optional per-camera input-size overrides.
+- `DRIVE_THRU_CONF_THRESHOLD`: optional confidence override for drive-thru detections (default fallback `0.25`).
 - `IN_STORE_CONF_THRESHOLD`: optional confidence override for in-store person detections (default `0.15`).
+- `DRIVE_THRU_COUNT_HOLD_SEC`: short hold window to reduce moving-car detection dropouts (default `0.60`).
+- `DRIVE_THRU_ROI` / `IN_STORE_ROI`: optional normalized ROIs (`x1,y1,x2,y2`) for each camera.
 - `CORS_ORIGINS`: allowed frontend origins (default includes `localhost:3000`).
 - `RECO_FORECAST_HORIZON_MIN`: recommendation forecast window.
 - `RECO_DROP_CADENCE_MIN`: recommendation cadence assumption.
