@@ -328,7 +328,7 @@ export default function AnalyticsPage() {
     const wait = metrics.aggregates.estimated_wait_time_min;
 
     if (state === "surging") {
-      return `Demand is rising (${trend.toFixed(2)} customers/min) and current wait is ${wait.toFixed(1)} min. Prioritize high-urgency batch increases now.`;
+      return `Demand is rising (${trend.toFixed(2)} customers/min) and current wait is ${wait.toFixed(1)} min. Prioritize high-urgency unit increases now.`;
     }
 
     if (state === "falling") {
@@ -563,7 +563,7 @@ export default function AnalyticsPage() {
                   <span className="text-xs font-bold uppercase tracking-[0.08em] text-muted">{item.urgency}</span>
                 </div>
                 <p className="mt-1 text-sm text-slate-700">
-                  {item.recommended_batches} batch(es) ({item.recommended_units} units)
+                  Recommended drop: {item.recommended_units} units (baseline {item.baseline_units} units)
                 </p>
                 <p className="mt-1 text-xs text-muted">{item.reason}</p>
               </article>

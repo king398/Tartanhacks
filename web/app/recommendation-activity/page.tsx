@@ -10,7 +10,7 @@ type RecommendationLogEntry = {
   queueState: string;
   projectedCustomers: number;
   topItemLabel: string;
-  topDeltaBatches: number;
+  topDeltaUnits: number;
   estimatedWaitReductionMin: number;
   estimatedRevenueProtectedUsd: number;
   signature: string;
@@ -45,10 +45,10 @@ export default function RecommendationActivityPage() {
         setMetrics(metricsData);
         setReco(recoData);
         setActivityLog((prev) => {
-          const topDeltaItem = [...recoData.recommendations].sort((a, b) => Math.abs(b.delta_batches) - Math.abs(a.delta_batches))[0];
+          const topDeltaItem = [...recoData.recommendations].sort((a, b) => Math.abs(b.delta_units) - Math.abs(a.delta_units))[0];
           const decisionSignature = [
             recoData.forecast.queue_state,
-            ...recoData.recommendations.map((item) => `${item.item}:${item.delta_batches}`),
+            ...recoData.recommendations.map((item) => `${item.item}:${item.delta_units}`),
           ].join("|");
 
           if (prev[0]?.signature === decisionSignature) {
@@ -60,7 +60,7 @@ export default function RecommendationActivityPage() {
             queueState: recoData.forecast.queue_state,
             projectedCustomers: recoData.forecast.projected_customers,
             topItemLabel: topDeltaItem?.label ?? "No item",
-            topDeltaBatches: topDeltaItem?.delta_batches ?? 0,
+            topDeltaUnits: topDeltaItem?.delta_units ?? 0,
             estimatedWaitReductionMin: recoData.impact.estimated_wait_reduction_min,
             estimatedRevenueProtectedUsd: recoData.impact.estimated_revenue_protected_usd,
             signature: decisionSignature,
@@ -100,7 +100,7 @@ export default function RecommendationActivityPage() {
           <div>
             <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">Recommendation Activity</h1>
             <p className="text-sm text-muted md:text-base">
-              Full-screen view of live batch recommendations, urgency, and business impact.
+              Full-screen view of live unit-drop recommendations, urgency, and business impact.
             </p>
           </div>
 
@@ -161,13 +161,13 @@ export default function RecommendationActivityPage() {
                 </div>
 
                 <p className="mt-2 text-sm text-slate-700">
-                  Recommended: <span className="font-semibold">{item.recommended_batches} batch(es)</span> ({recommendedUnits} units)
+                  Recommended drop: <span className="font-semibold">{recommendedUnits} units</span>
                 </p>
                 <p className="text-sm text-muted">
-                  Baseline: {item.baseline_batches} batch(es) ({baselineUnits} units)
+                  Baseline drop: {baselineUnits} units
                 </p>
                 <p className="mt-1 text-sm text-slate-700">
-                  Delta: <span className="font-semibold">{item.delta_batches > 0 ? `+${item.delta_batches}` : item.delta_batches} batch(es)</span>
+                  Delta: <span className="font-semibold">{item.delta_units > 0 ? `+${item.delta_units}` : item.delta_units} units</span>
                 </p>
                 <p className="mt-2 text-xs text-muted">{item.reason}</p>
               </article>
@@ -194,7 +194,7 @@ export default function RecommendationActivityPage() {
                     <p className="text-xs uppercase tracking-[0.08em] text-muted">{entry.queueState}</p>
                   </div>
                   <p className="mt-1 text-xs text-muted">
-                    Top action: {entry.topItemLabel} ({entry.topDeltaBatches > 0 ? `+${entry.topDeltaBatches}` : entry.topDeltaBatches} batches)
+                    Top action: {entry.topItemLabel} ({entry.topDeltaUnits > 0 ? `+${entry.topDeltaUnits}` : entry.topDeltaUnits} units)
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     Projected load {entry.projectedCustomers.toFixed(1)} customers | Wait reduction {entry.estimatedWaitReductionMin.toFixed(1)} min |

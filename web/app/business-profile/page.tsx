@@ -6,6 +6,18 @@ import { useRouter } from "next/navigation";
 import { API_BASE, fetchBusinessProfile, resetBusinessProfile, updateBusinessProfile } from "@/app/lib/api";
 import type { BusinessProfile, MenuItemProfile } from "@/app/lib/types";
 
+const CUSTOM_PROFILE_OPTION = "__custom__";
+
+const BUSINESS_TYPE_OPTIONS = ["Fast Food", "Fast Casual", "Casual Dining", "Coffee Shop / Cafe", "Ghost Kitchen"];
+
+const SERVICE_MODEL_OPTIONS = [
+  "Drive-thru + Counter",
+  "Drive-thru Only",
+  "Counter / Walk-in Only",
+  "Dine-in + Counter",
+  "Pickup + Delivery",
+];
+
 function normalizeMenuItem(item: MenuItemProfile): MenuItemProfile {
   const legacyItem = item as MenuItemProfile & { max_batch_size?: number };
   const maxUnitSize = Math.max(1, Math.min(5000, Math.round(item.max_unit_size ?? legacyItem.max_batch_size ?? 64)));
@@ -45,6 +57,14 @@ export default function BusinessProfilePage() {
     }
     return JSON.stringify(profile) !== JSON.stringify(profileDraft);
   }, [profile, profileDraft]);
+  const isBusinessTypeCustom = useMemo(
+    () => (profileDraft ? !BUSINESS_TYPE_OPTIONS.includes(profileDraft.business_type) : false),
+    [profileDraft],
+  );
+  const isServiceModelCustom = useMemo(
+    () => (profileDraft ? !SERVICE_MODEL_OPTIONS.includes(profileDraft.service_model) : false),
+    [profileDraft],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -80,13 +100,13 @@ export default function BusinessProfilePage() {
     setProfileDraft((prev) => (prev ? { ...prev, [field]: value } : prev));
   };
 
-  const onProfileNumberChange = (field: "drop_cadence_min" | "avg_ticket_usd", value: string) => {
+  const onProfileNumberChange = (field: "avg_ticket_usd", value: string) => {
     const parsed = Number(value);
     const numericValue = Number.isFinite(parsed) ? parsed : 0;
     setProfileDraft((prev) => (prev ? { ...prev, [field]: numericValue } : prev));
   };
 
-  const onMenuTextChange = (index: number, field: "label" | "key", value: string) => {
+  const onMenuTextChange = (index: number, field: "label", value: string) => {
     setProfileDraft((prev) => {
       if (!prev) {
         return prev;
@@ -280,11 +300,35 @@ export default function BusinessProfilePage() {
               </label>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Business Type</span>
-                <input
-                  value={profileDraft.business_type}
-                  onChange={(event) => onProfileTextChange("business_type", event.target.value)}
+                <select
+                  value={isBusinessTypeCustom ? CUSTOM_PROFILE_OPTION : profileDraft.business_type}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    if (nextValue === CUSTOM_PROFILE_OPTION) {
+                      if (!isBusinessTypeCustom) {
+                        onProfileTextChange("business_type", "");
+                      }
+                      return;
+                    }
+                    onProfileTextChange("business_type", nextValue);
+                  }}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
-                />
+                >
+                  {BUSINESS_TYPE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_PROFILE_OPTION}>Other (Custom)</option>
+                </select>
+                {isBusinessTypeCustom ? (
+                  <input
+                    value={profileDraft.business_type}
+                    onChange={(event) => onProfileTextChange("business_type", event.target.value)}
+                    placeholder="Enter custom business type"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  />
+                ) : null}
               </label>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Location</span>
@@ -296,26 +340,39 @@ export default function BusinessProfilePage() {
               </label>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Service Model</span>
-                <input
-                  value={profileDraft.service_model}
-                  onChange={(event) => onProfileTextChange("service_model", event.target.value)}
+                <select
+                  value={isServiceModelCustom ? CUSTOM_PROFILE_OPTION : profileDraft.service_model}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    if (nextValue === CUSTOM_PROFILE_OPTION) {
+                      if (!isServiceModelCustom) {
+                        onProfileTextChange("service_model", "");
+                      }
+                      return;
+                    }
+                    onProfileTextChange("service_model", nextValue);
+                  }}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
-                />
+                >
+                  {SERVICE_MODEL_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_PROFILE_OPTION}>Other (Custom)</option>
+                </select>
+                {isServiceModelCustom ? (
+                  <input
+                    value={profileDraft.service_model}
+                    onChange={(event) => onProfileTextChange("service_model", event.target.value)}
+                    placeholder="Enter custom service model"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  />
+                ) : null}
               </label>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-sm text-slate-700">
-                <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Drop Cadence (min)</span>
-                <input
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  value={profileDraft.drop_cadence_min}
-                  onChange={(event) => onProfileNumberChange("drop_cadence_min", event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
-                />
-              </label>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Average Ticket ($)</span>
                 <input
@@ -361,14 +418,6 @@ export default function BusinessProfilePage() {
                       <input
                         value={item.label}
                         onChange={(event) => onMenuTextChange(index, "label", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
-                      />
-                    </label>
-                    <label className="text-xs text-slate-700">
-                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Key (optional)</span>
-                      <input
-                        value={item.key ?? ""}
-                        onChange={(event) => onMenuTextChange(index, "key", event.target.value)}
                         className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
                       />
                     </label>

@@ -25,6 +25,10 @@ class RecommendationEngine:
         self.forecast_horizon_min = self._env_float("RECO_FORECAST_HORIZON_MIN", 8.0)
         self.drop_cadence_min = self._env_float("RECO_DROP_CADENCE_MIN", 4.0)
         self.avg_ticket_usd = self._env_float("AVG_TICKET_USD", 10.5)
+        self.medium_urgency_customers = self._env_float("RECO_URGENCY_MEDIUM_CUSTOMERS", 8.0)
+        self.high_urgency_customers = self._env_float("RECO_URGENCY_HIGH_CUSTOMERS", 16.0)
+        if self.high_urgency_customers < self.medium_urgency_customers:
+            self.high_urgency_customers = self.medium_urgency_customers
 
         self.business_name = "Steel City Chicken"
         self.business_type = "Fast Food"
@@ -108,7 +112,6 @@ class RecommendationEngine:
         business_type: str,
         location: str,
         service_model: str,
-        drop_cadence_min: float,
         avg_ticket_usd: float,
         item_profiles: list[ItemProfile],
     ) -> dict[str, Any]:
@@ -116,7 +119,6 @@ class RecommendationEngine:
         self.business_type = business_type.strip() or self.business_type
         self.location = location.strip() or self.location
         self.service_model = service_model.strip() or self.service_model
-        self.drop_cadence_min = max(0.5, float(drop_cadence_min))
         self.avg_ticket_usd = max(0.01, float(avg_ticket_usd))
         self.item_profiles = tuple(item_profiles)
         return self.get_business_profile()
@@ -127,7 +129,6 @@ class RecommendationEngine:
             "business_type": self.business_type,
             "location": self.location,
             "service_model": self.service_model,
-            "drop_cadence_min": round(self.drop_cadence_min, 1),
             "avg_ticket_usd": round(self.avg_ticket_usd, 2),
             "menu_items": [
                 {
@@ -162,6 +163,13 @@ class RecommendationEngine:
             return "falling"
         return "steady"
 
+    def _urgency_from_customer_count(self, total_customers: float) -> str:
+        if total_customers >= self.high_urgency_customers:
+            return "high"
+        if total_customers >= self.medium_urgency_customers:
+            return "medium"
+        return "low"
+
     def _confidence(self, processing_fps: float) -> float:
         history_factor = self._clamp(len(self._history) / 18.0, 0.0, 1.0)
         fps_factor = self._clamp(processing_fps / 15.0, 0.0, 1.0)
@@ -174,23 +182,19 @@ class RecommendationEngine:
         current_wait: float,
         stream_error: str | None,
     ) -> dict[str, Any]:
+        fallback_urgency = self._urgency_from_customer_count(current_customers)
         recommendations = []
         for profile in self.item_profiles:
-            max_batches = max(0, profile.max_unit_size // profile.batch_size)
-            baseline_batches = math.ceil(profile.baseline_drop_units / profile.batch_size)
-            baseline_batches = min(baseline_batches, max_batches)
-            baseline_units = baseline_batches * profile.batch_size
+            baseline_units = min(int(profile.baseline_drop_units), int(profile.max_unit_size))
             recommendations.append(
                 {
                     "item": profile.key,
                     "label": profile.label,
-                    "recommended_batches": baseline_batches,
-                    "recommended_units": min(baseline_units, profile.max_unit_size),
-                    "baseline_batches": baseline_batches,
-                    "baseline_units": min(baseline_units, profile.max_unit_size),
+                    "recommended_units": baseline_units,
+                    "baseline_units": baseline_units,
                     "max_unit_size": profile.max_unit_size,
-                    "delta_batches": 0,
-                    "urgency": "low",
+                    "delta_units": 0,
+                    "urgency": fallback_urgency,
                     "reason": "Live stream is unavailable; holding baseline plan until frames are flowing.",
                 }
             )
@@ -251,6 +255,7 @@ class RecommendationEngine:
         projected_customers = max(0.0, current_customers + (trend_per_min * self.forecast_horizon_min * trend_boost))
 
         safety_ratio = 0.35 if queue_state == "surging" else 0.22 if queue_state == "steady" else 0.12
+        urgency_by_customer_load = self._urgency_from_customer_count(current_customers)
 
         recommendations: list[dict[str, Any]] = []
         waste_avoided_units = 0.0
@@ -258,22 +263,19 @@ class RecommendationEngine:
 
         for profile in self.item_profiles:
             required_units = projected_customers * profile.units_per_order
-            safety_units = profile.batch_size * safety_ratio
+            safety_units = required_units * safety_ratio
             target_units = required_units + safety_units
-            max_batches = max(0, profile.max_unit_size // profile.batch_size)
+            max_units = int(profile.max_unit_size)
 
             if projected_customers < 2.5 and queue_state == "falling":
-                min_batches = 0
+                min_units = 0
             else:
-                min_batches = 1
+                min_units = 1
 
-            target_batches = math.ceil(target_units / profile.batch_size)
-            recommended_batches = max(min_batches, target_batches)
-            recommended_batches = min(recommended_batches, max_batches)
-            recommended_units = min(recommended_batches * profile.batch_size, profile.max_unit_size)
-            baseline_batches = math.ceil(profile.baseline_drop_units / profile.batch_size)
-            baseline_batches = min(baseline_batches, max_batches)
-            baseline_units = min(baseline_batches * profile.batch_size, profile.max_unit_size)
+            target_drop_units = math.ceil(target_units)
+            recommended_units = max(min_units, target_drop_units)
+            recommended_units = min(recommended_units, max_units)
+            baseline_units = min(int(profile.baseline_drop_units), max_units)
 
             baseline_over = max(0.0, baseline_units - required_units)
             recommended_over = max(0.0, recommended_units - required_units)
@@ -282,31 +284,28 @@ class RecommendationEngine:
             waste_avoided_units += saved_units
             cost_saved_usd += saved_units * profile.unit_cost_usd
 
-            delta_batches = recommended_batches - baseline_batches
-            urgency = "high" if queue_state == "surging" and recommended_batches >= baseline_batches else "medium" if queue_state == "steady" else "low"
+            delta_units = recommended_units - baseline_units
+            urgency = urgency_by_customer_load
 
-            if delta_batches > 0:
-                reason = f"Queue {queue_state}; increase by {delta_batches} batch(es) to absorb demand spike."
-            elif delta_batches < 0:
-                reason = f"Queue {queue_state}; reduce by {abs(delta_batches)} batch(es) to limit overproduction."
+            if delta_units > 0:
+                reason = f"Queue {queue_state}; increase drop by {delta_units} unit(s) to absorb demand spike."
+            elif delta_units < 0:
+                reason = f"Queue {queue_state}; reduce drop by {abs(delta_units)} unit(s) to limit overproduction."
             else:
                 reason = "Current pace matches forecasted demand for the next cook cycle."
-            if target_batches > max_batches:
+            if target_drop_units > max_units:
                 reason = (
-                    f"{reason} Capped at {profile.max_unit_size} units "
-                    f"({max_batches} batch(es)) based on configured max unit size."
+                    f"{reason} Capped at {profile.max_unit_size} units based on configured max unit size."
                 )
 
             recommendations.append(
                 {
                     "item": profile.key,
                     "label": profile.label,
-                    "recommended_batches": recommended_batches,
                     "recommended_units": recommended_units,
-                    "baseline_batches": baseline_batches,
                     "baseline_units": baseline_units,
                     "max_unit_size": profile.max_unit_size,
-                    "delta_batches": delta_batches,
+                    "delta_units": delta_units,
                     "urgency": urgency,
                     "reason": reason,
                 }

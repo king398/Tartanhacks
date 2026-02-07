@@ -36,12 +36,10 @@ export type Metrics = {
 export type RecommendationItem = {
   item: string;
   label: string;
-  recommended_batches: number;
   recommended_units: number;
-  baseline_batches: number;
   baseline_units: number;
   max_unit_size?: number;
-  delta_batches: number;
+  delta_units: number;
   urgency: "high" | "medium" | "low";
   reason: string;
 };
@@ -102,7 +100,6 @@ export type BusinessProfile = {
   business_type: string;
   location: string;
   service_model: string;
-  drop_cadence_min: number;
   avg_ticket_usd: number;
   menu_items: MenuItemProfile[];
 };

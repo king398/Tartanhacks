@@ -20,7 +20,7 @@ const checkStatusBadge: Record<DemoReadinessCheckStatus, string> = {
 
 const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
   high: "bg-red-100 text-red-700 border-red-200",
-  medium: "bg-amber-100 text-amber-700 border-amber-200",
+  medium: "bg-yellow-100 text-yellow-800 border-yellow-300",
   low: "bg-emerald-100 text-emerald-700 border-emerald-200",
 };
 
@@ -84,7 +84,7 @@ export default function JudgeBriefPage() {
     if (!items.length) {
       return null;
     }
-    return [...items].sort((a, b) => Math.abs(b.delta_batches) - Math.abs(a.delta_batches))[0];
+    return [...items].sort((a, b) => Math.abs(b.delta_units) - Math.abs(a.delta_units))[0];
   }, [reco?.recommendations]);
 
   const stateNarrative = useMemo(() => {
@@ -184,11 +184,10 @@ export default function JudgeBriefPage() {
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-700">
-                Recommended <span className="font-semibold">{topAction.recommended_batches} batch(es)</span> ({topAction.recommended_units} units),
-                baseline {topAction.baseline_batches} batch(es).
+                Recommended drop <span className="font-semibold">{topAction.recommended_units} units</span>, baseline {topAction.baseline_units} units.
               </p>
               <p className="mt-1 text-sm text-slate-700">
-                Delta: <span className="font-semibold">{topAction.delta_batches > 0 ? `+${topAction.delta_batches}` : topAction.delta_batches} batch(es)</span>
+                Delta: <span className="font-semibold">{topAction.delta_units > 0 ? `+${topAction.delta_units}` : topAction.delta_units} units</span>
               </p>
               <p className="mt-2 text-xs text-muted">{topAction.reason}</p>
             </div>

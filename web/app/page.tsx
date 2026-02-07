@@ -28,7 +28,7 @@ const cameraLabels: Record<CameraId, string> = {
 
 const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
   high: "bg-red-100 text-red-700 border-red-200",
-  medium: "bg-amber-100 text-amber-700 border-amber-200",
+  medium: "bg-yellow-100 text-yellow-800 border-yellow-300",
   low: "bg-emerald-100 text-emerald-700 border-emerald-200",
 };
 
@@ -426,7 +426,7 @@ export default function Home() {
       <section className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <div className="panel rounded-3xl p-5 md:p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="display text-xl font-semibold text-graphite">Dynamic Batch Plan</h2>
+            <h2 className="display text-xl font-semibold text-graphite">Dynamic Drop Plan</h2>
             <p className="text-sm text-muted">Per next cook cycle</p>
           </div>
 
@@ -442,13 +442,16 @@ export default function Home() {
 
                 <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
                   <p>
-                    Recommend: <span className="display font-semibold">{item.recommended_batches} batch(es)</span>
+                    Recommended Drop: <span className="display font-semibold">{item.recommended_units} units</span>
                   </p>
                   <p>
-                    Units: <span className="display font-semibold">{item.recommended_units}</span>
+                    Baseline Drop: <span className="display font-semibold">{item.baseline_units} units</span>
                   </p>
                   <p>
-                    Baseline: <span className="display font-semibold">{item.baseline_batches} batch(es)</span>
+                    Delta:{" "}
+                    <span className="display font-semibold">
+                      {item.delta_units > 0 ? `+${item.delta_units}` : item.delta_units} units
+                    </span>
                   </p>
                 </div>
 
@@ -488,9 +491,6 @@ export default function Home() {
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">
             <p>
               Trend: <span className="display font-semibold text-graphite">{reco?.forecast.trend_customers_per_min?.toFixed(2) ?? "0.00"}</span> customers/min
-            </p>
-            <p>
-              Drop cadence: <span className="display font-semibold text-graphite">{reco?.assumptions.drop_cadence_min ?? 0} min</span>
             </p>
             <p>
               Avg ticket: <span className="display font-semibold text-graphite">{formatMoney(reco?.assumptions.avg_ticket_usd ?? 0)}</span>

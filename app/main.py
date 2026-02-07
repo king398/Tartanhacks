@@ -124,7 +124,6 @@ class BusinessProfilePayload(BaseModel):
     business_type: str = Field(min_length=1, max_length=80)
     location: str = Field(min_length=1, max_length=120)
     service_model: str = Field(min_length=1, max_length=80)
-    drop_cadence_min: float = Field(gt=0.0, le=60.0)
     avg_ticket_usd: float = Field(gt=0.0, le=500.0)
     menu_items: list[MenuItemPayload] = Field(min_length=1, max_length=24)
 
@@ -141,7 +140,6 @@ SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
     "business_type": "Fast Food",
     "location": "Pittsburgh, PA",
     "service_model": "Drive-thru + Counter",
-    "drop_cadence_min": _env_float("RECO_DROP_CADENCE_MIN", 4.0),
     "avg_ticket_usd": _env_float("AVG_TICKET_USD", 10.5),
     "menu_items": [
         {
@@ -272,7 +270,6 @@ def _apply_business_profile(payload: BusinessProfilePayload) -> dict[str, Any]:
         business_type=payload.business_type,
         location=payload.location,
         service_model=payload.service_model,
-        drop_cadence_min=payload.drop_cadence_min,
         avg_ticket_usd=payload.avg_ticket_usd,
         item_profiles=item_profiles,
     )
@@ -410,45 +407,30 @@ def _enforce_recommendation_limits(
             continue
 
         max_unit_size = int(profile.max_unit_size)
-        batch_size = max(1, int(profile.batch_size))
-        max_batches = max(0, max_unit_size // batch_size)
+        raw_recommended_units = int(item.get("recommended_units", item.get("baseline_units", profile.baseline_drop_units)) or 0)
+        raw_baseline_units = int(item.get("baseline_units", profile.baseline_drop_units) or 0)
 
-        raw_recommended_batches = int(item.get("recommended_batches", 0) or 0)
-        raw_baseline_batches = int(item.get("baseline_batches", 0) or 0)
-
-        recommended_batches = min(max(0, raw_recommended_batches), max_batches)
-        baseline_batches = min(max(0, raw_baseline_batches), max_batches)
-
-        recommended_units = min(
-            int(item.get("recommended_units", 0) or 0),
-            recommended_batches * batch_size,
-            max_unit_size,
-        )
-        baseline_units = min(
-            int(item.get("baseline_units", 0) or 0),
-            baseline_batches * batch_size,
-            max_unit_size,
-        )
+        recommended_units = min(max(0, raw_recommended_units), max_unit_size)
+        baseline_units = min(max(0, raw_baseline_units), max_unit_size)
 
         was_clamped = (
-            recommended_batches != raw_recommended_batches
-            or baseline_batches != raw_baseline_batches
-            or recommended_units != int(item.get("recommended_units", 0) or 0)
-            or baseline_units != int(item.get("baseline_units", 0) or 0)
+            recommended_units != raw_recommended_units
+            or baseline_units != raw_baseline_units
         )
 
-        item["recommended_batches"] = recommended_batches
+        item.pop("recommended_batches", None)
+        item.pop("baseline_batches", None)
+        item.pop("delta_batches", None)
+
         item["recommended_units"] = recommended_units
-        item["baseline_batches"] = baseline_batches
         item["baseline_units"] = baseline_units
-        item["delta_batches"] = recommended_batches - baseline_batches
+        item["delta_units"] = recommended_units - baseline_units
         item["max_unit_size"] = max_unit_size
 
         if was_clamped:
             reason = str(item.get("reason", "")).strip()
             clamp_note = (
-                f"Capped at {max_unit_size} units ({max_batches} batch(es)) "
-                "based on configured max unit size."
+                f"Capped at {max_unit_size} units based on configured max unit size."
             )
             if clamp_note not in reason:
                 item["reason"] = f"{reason} {clamp_note}".strip()
@@ -477,11 +459,11 @@ def _build_demo_readiness() -> dict[str, Any]:
 
     with reco_lock:
         profile = recommender.get_business_profile()
+        drop_cadence_min = float(recommender.drop_cadence_min)
 
     business_name = str(profile.get("business_name", "")).strip()
     menu_items = profile.get("menu_items", [])
     menu_item_count = len(menu_items) if isinstance(menu_items, list) else 0
-    drop_cadence_min = float(profile.get("drop_cadence_min", 0.0) or 0.0)
     avg_ticket_usd = float(profile.get("avg_ticket_usd", 0.0) or 0.0)
 
     checks: list[dict[str, Any]] = []
