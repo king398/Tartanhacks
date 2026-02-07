@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type NavItem = {
   href: string;
@@ -21,18 +21,6 @@ function isActive(pathname: string, href: string): boolean {
     return pathname === "/";
   }
   return pathname.startsWith(href);
-}
-
-function IconButton({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-    >
-      {children}
-    </button>
-  );
 }
 
 export default function TopNav() {
@@ -103,27 +91,6 @@ export default function TopNav() {
           </nav>
 
           <div className="flex items-center gap-1.5">
-            <div className="hidden items-center gap-1 sm:flex">
-              <IconButton label="Search">
-                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4">
-                  <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.6" />
-                  <path d="M13.2 13.2L17 17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </IconButton>
-              <IconButton label="Notifications">
-                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4">
-                  <path d="M10 3.5C7.9 3.5 6.2 5.2 6.2 7.3V9.2C6.2 10.2 5.8 11.2 5.1 12L4.3 12.9H15.7L14.9 12C14.2 11.2 13.8 10.2 13.8 9.2V7.3C13.8 5.2 12.1 3.5 10 3.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                  <path d="M8.5 15.1C8.8 15.7 9.3 16 10 16C10.7 16 11.2 15.7 11.5 15.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </IconButton>
-              <IconButton label="Settings">
-                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4">
-                  <circle cx="10" cy="10" r="2.5" stroke="currentColor" strokeWidth="1.6" />
-                  <path d="M10 3.3V5M10 15V16.7M16.7 10H15M5 10H3.3M14.8 5.2L13.6 6.4M6.4 13.6L5.2 14.8M14.8 14.8L13.6 13.6M6.4 6.4L5.2 5.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                </svg>
-              </IconButton>
-            </div>
-
             <button
               type="button"
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 md:hidden"

@@ -237,7 +237,6 @@ export default function Home() {
             {cameraIds.map((cameraId) => {
               const busy = sourceBusyByCamera[cameraId];
               const cameraMetrics = metrics?.cameras?.[cameraId];
-              const activeSource = cameraMetrics?.stream_source ?? streamSources[cameraId] ?? "";
 
               return (
                 <article key={cameraId} className="rounded-2xl border accent-card p-3">
@@ -275,7 +274,6 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <p className="mt-1.5 text-xs text-muted">Active source: {activeSource || "loading..."}</p>
                   {sourceStatus[cameraId] ? <p className="mt-1 text-xs text-emerald-700">{sourceStatus[cameraId]}</p> : null}
                   {sourceFormError[cameraId] ? <p className="mt-1 text-xs text-red-600">{sourceFormError[cameraId]}</p> : null}
                 </article>
@@ -292,13 +290,10 @@ export default function Home() {
 
         <section className="grid gap-3 lg:grid-cols-2">
           {cameraIds.map((cameraId) => {
-            const cameraMetrics = metrics?.cameras?.[cameraId];
-
             return (
-              <article key={cameraId} className="soft-hover overflow-hidden rounded-2xl border border-sky-300/50 bg-[#0d2741]">
-                <div className="flex items-center justify-between border-b border-sky-700/60 px-3 py-2 text-xs text-sky-100">
-                  <span className="font-semibold tracking-[0.08em] uppercase">{cameraLabels[cameraId]}</span>
-                  <span>Status: {cameraMetrics?.stream_status ?? "initializing"}</span>
+              <article key={cameraId} className="soft-hover overflow-hidden rounded-2xl border border-slate-300 bg-white">
+                <div className="border-b border-slate-200 px-3 py-2">
+                  <span className="text-xs font-semibold tracking-[0.08em] uppercase text-slate-600">{cameraLabels[cameraId]}</span>
                 </div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={feedUrlByCamera[cameraId]} alt={`${cameraLabels[cameraId]} live stream`} className="block aspect-video w-full object-cover" />
