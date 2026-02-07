@@ -5,24 +5,16 @@ import { useEffect, useState } from "react";
 import { fetchDashboardData } from "@/app/lib/api";
 import type { Metrics, RecommendationItem, RecommendationResponse } from "@/app/lib/types";
 
-type RecommendationLogEntry = {
-  timestamp: string;
-  queueState: string;
-  actualCustomers: number;
-  inStorePeople: number;
-  driveThruCars: number;
-  topItemLabel: string;
-  topItemUnitLabel: string;
-  topDeltaUnits: number;
-  estimatedWaitReductionMin: number;
-  estimatedRevenueProtectedUsd: number;
-  signature: string;
-};
-
 const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
   high: "bg-red-100 text-red-700 border-red-200",
   medium: "bg-yellow-100 text-yellow-800 border-yellow-300",
   low: "bg-emerald-100 text-emerald-700 border-emerald-200",
+};
+
+const urgencyCardTone: Record<RecommendationItem["urgency"], string> = {
+  high: "border-red-300 bg-red-50/70",
+  medium: "border-amber-300 bg-amber-50/70",
+  low: "border-sky-200 bg-sky-50/70",
 };
 
 function formatMoney(value: number): string {
@@ -48,7 +40,6 @@ function deriveRecommendationNumbers(item: RecommendationItem): {
 export default function RecommendationActivityPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [reco, setReco] = useState<RecommendationResponse | null>(null);
-  const [activityLog, setActivityLog] = useState<RecommendationLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,44 +54,6 @@ export default function RecommendationActivityPage() {
 
         setMetrics(metricsData);
         setReco(recoData);
-        setActivityLog((prev) => {
-          const topDeltaItem = [...recoData.recommendations].sort((a, b) => {
-            const aDelta = deriveRecommendationNumbers(a).deltaUnits;
-            const bDelta = deriveRecommendationNumbers(b).deltaUnits;
-            return Math.abs(bDelta) - Math.abs(aDelta);
-          })[0];
-          const decisionSignature = [
-            recoData.forecast.queue_state,
-            ...recoData.recommendations.map((item) => {
-              const { deltaUnits } = deriveRecommendationNumbers(item);
-              return `${item.item}:${deltaUnits}`;
-            }),
-          ].join("|");
-
-          if (prev[0]?.signature === decisionSignature) {
-            return prev;
-          }
-
-          const inStorePeople = Number(metricsData.in_store?.person_count ?? 0);
-          const driveThruCars = Number(metricsData.drive_thru?.car_count ?? 0);
-          const actualCustomers = inStorePeople + driveThruCars;
-
-          const next: RecommendationLogEntry = {
-            timestamp: recoData.timestamp,
-            queueState: recoData.forecast.queue_state,
-            actualCustomers,
-            inStorePeople,
-            driveThruCars,
-            topItemLabel: topDeltaItem?.label ?? "No item",
-            topItemUnitLabel: unitLabelFromItem(topDeltaItem),
-            topDeltaUnits: topDeltaItem ? deriveRecommendationNumbers(topDeltaItem).deltaUnits : 0,
-            estimatedWaitReductionMin: recoData.impact.estimated_wait_reduction_min,
-            estimatedRevenueProtectedUsd: recoData.impact.estimated_revenue_protected_usd,
-            signature: decisionSignature,
-          };
-
-          return [next, ...prev].slice(0, 18);
-        });
         setError(null);
       } catch (err) {
         if (!alive) {
@@ -143,7 +96,60 @@ export default function RecommendationActivityPage() {
           </div>
         ) : null}
 
-        <div className="mb-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid min-h-[56vh] auto-rows-fr gap-3 lg:grid-cols-2">
+          {(reco?.recommendations ?? []).map((item) => {
+            const maxUnitSize = item.max_unit_size;
+            const numbers = deriveRecommendationNumbers(item);
+            const unitLabel = unitLabelFromItem(item);
+            const recommendedUnits = maxUnitSize !== undefined ? Math.min(numbers.recommendedUnits, maxUnitSize) : numbers.recommendedUnits;
+            const baselineUnits = maxUnitSize !== undefined ? Math.min(numbers.baselineUnits, maxUnitSize) : numbers.baselineUnits;
+            const deltaUnits = recommendedUnits - baselineUnits;
+
+            return (
+              <article key={item.item} className={`h-full rounded-3xl border p-4 md:p-6 ${urgencyCardTone[item.urgency]}`}>
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Item</p>
+                    <h2 className="display mt-1 text-3xl leading-tight font-bold text-graphite md:text-5xl">{item.label}</h2>
+                  </div>
+                  <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
+                    {item.urgency}
+                  </span>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Recommended Drop</p>
+                  <div className="mt-1 flex items-end justify-between gap-3">
+                    <p className="display text-4xl leading-none font-black text-sky-800 md:text-6xl">{recommendedUnits}</p>
+                    <p className="display text-xl font-semibold text-graphite md:text-2xl">{unitLabel}</p>
+                  </div>
+                </div>
+
+                <p className="mt-3 text-sm text-slate-700">
+                  Baseline: <span className="font-semibold">{baselineUnits} {unitLabel}</span> | Delta:{" "}
+                  <span className="font-semibold">{deltaUnits > 0 ? `+${deltaUnits}` : deltaUnits} {unitLabel}</span>
+                </p>
+                {item.ready_inventory_units !== undefined || item.fryer_inventory_units !== undefined ? (
+                  <p className="text-sm text-muted">
+                    Inventory: ready {item.ready_inventory_units ?? 0} | fryer {item.fryer_inventory_units ?? 0} {unitLabel}
+                  </p>
+                ) : null}
+                {item.next_decision_in_sec !== undefined ? (
+                  <p className="mt-1 text-xs text-muted">
+                    {item.decision_locked ? `Next decision in ${item.next_decision_in_sec}s.` : `Decision refreshed. Next update in ${item.next_decision_in_sec}s.`}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-xs text-muted">{item.reason}</p>
+              </article>
+            );
+          })}
+
+          {reco?.recommendations.length ? null : (
+            <div className="accent-card rounded-3xl border p-6 text-sm text-muted">Waiting for recommendations...</div>
+          )}
+        </section>
+
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           <article className="soft-hover accent-card rounded-2xl border p-3">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Queue State</p>
             <p className="mt-2 display text-2xl font-semibold capitalize text-sky-900">{reco?.forecast.queue_state ?? "unknown"}</p>
@@ -171,83 +177,6 @@ export default function RecommendationActivityPage() {
             <p className="text-sm text-muted">Directional estimate</p>
           </article>
         </div>
-
-        <section className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-          {(reco?.recommendations ?? []).map((item) => {
-            const maxUnitSize = item.max_unit_size;
-            const numbers = deriveRecommendationNumbers(item);
-            const unitLabel = unitLabelFromItem(item);
-            const recommendedUnits = maxUnitSize !== undefined ? Math.min(numbers.recommendedUnits, maxUnitSize) : numbers.recommendedUnits;
-            const baselineUnits = maxUnitSize !== undefined ? Math.min(numbers.baselineUnits, maxUnitSize) : numbers.baselineUnits;
-            const deltaUnits = recommendedUnits - baselineUnits;
-
-            return (
-              <article key={item.item} className="accent-card rounded-2xl border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h2 className="display text-base font-semibold text-graphite">{item.label}</h2>
-                  <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
-                    {item.urgency}
-                  </span>
-                </div>
-
-                <p className="mt-2 text-sm text-slate-700">
-                  Recommended drop: <span className="font-semibold">{recommendedUnits} {unitLabel}</span>
-                </p>
-                <p className="text-sm text-muted">
-                  Baseline drop: {baselineUnits} {unitLabel}
-                </p>
-                {item.ready_inventory_units !== undefined || item.fryer_inventory_units !== undefined ? (
-                  <p className="text-sm text-muted">
-                    Inventory: ready {item.ready_inventory_units ?? 0} | fryer {item.fryer_inventory_units ?? 0} {unitLabel}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-sm text-slate-700">
-                  Delta: <span className="font-semibold">{deltaUnits > 0 ? `+${deltaUnits}` : deltaUnits} {unitLabel}</span>
-                </p>
-                {item.next_decision_in_sec !== undefined ? (
-                  <p className="mt-1 text-xs text-muted">
-                    {item.decision_locked ? `Next decision in ${item.next_decision_in_sec}s.` : `Decision refreshed. Next update in ${item.next_decision_in_sec}s.`}
-                  </p>
-                ) : null}
-                <p className="mt-2 text-xs text-muted">{item.reason}</p>
-              </article>
-            );
-          })}
-
-          {reco?.recommendations.length ? null : (
-            <div className="accent-card rounded-2xl border p-3 text-sm text-muted">Waiting for recommendations...</div>
-          )}
-        </section>
-
-        <section className="mt-3 rounded-2xl border accent-card p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="display text-lg font-semibold text-graphite">Decision Log</h2>
-            <p className="text-xs text-muted">Newest first, updates only when recommendation logic changes.</p>
-          </div>
-
-          {activityLog.length ? (
-            <div className="grid gap-2">
-              {activityLog.map((entry) => (
-                <article key={entry.timestamp} className="rounded-xl border border-sky-200 bg-sky-50/80 p-3 text-sm text-slate-700">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold text-graphite">{new Date(entry.timestamp).toLocaleTimeString()}</p>
-                    <p className="text-xs uppercase tracking-[0.08em] text-sky-700">{entry.queueState}</p>
-                  </div>
-                  <p className="mt-1 text-xs text-muted">
-                    Top action: {entry.topItemLabel} ({entry.topDeltaUnits > 0 ? `+${entry.topDeltaUnits}` : entry.topDeltaUnits} {entry.topItemUnitLabel})
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Actual load {entry.actualCustomers.toFixed(1)} customers ({entry.inStorePeople} people + {entry.driveThruCars} cars) | Wait reduction{" "}
-                    {entry.estimatedWaitReductionMin.toFixed(1)} min |
-                    Revenue protected {formatMoney(entry.estimatedRevenueProtectedUsd)}
-                  </p>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted">Waiting for recommendation changes to build decision history...</p>
-          )}
-        </section>
       </section>
     </main>
   );

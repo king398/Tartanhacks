@@ -73,6 +73,11 @@ type ChartScale = {
   xTicks: ChartTimeTick[];
 };
 
+type ChartPoint = {
+  x: number;
+  y: number;
+};
+
 function _plotWidth(): number {
   return CHART_WIDTH - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT;
 }
@@ -100,8 +105,8 @@ function _buildChartScale(
   const yMax = Math.max(1, maxValue * 1.08);
   const range = Math.max(1e-6, yMax - yMin);
 
-  const yTicks: ChartScaleTick[] = Array.from({ length: 5 }, (_, index) => {
-    const ratio = index / 4;
+  const yTicks: ChartScaleTick[] = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
     const value = yMax - ratio * range;
     return {
       y: CHART_MARGIN_TOP + ratio * _plotHeight(),
@@ -116,13 +121,12 @@ function _buildChartScale(
       yTicks,
       xTicks: [
         { x: CHART_MARGIN_LEFT, label: "Start" },
-        { x: CHART_MARGIN_LEFT + _plotWidth() / 2, label: "Mid" },
         { x: CHART_MARGIN_LEFT + _plotWidth(), label: "Now" },
       ],
     };
   }
 
-  const rawIndices = [0, Math.floor((timestamps.length - 1) / 2), timestamps.length - 1];
+  const rawIndices = [0, timestamps.length - 1];
   const uniqueIndices = Array.from(new Set(rawIndices));
   const xTicks: ChartTimeTick[] = uniqueIndices.map((index) => ({
     x:
@@ -154,6 +158,22 @@ function sparklinePath(values: number[], { yMin, yMax }: { yMin: number; yMax: n
       return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
+}
+
+function sparklineEndpoint(values: number[], { yMin, yMax }: { yMin: number; yMax: number }): ChartPoint | null {
+  if (values.length === 0) {
+    return null;
+  }
+  const range = Math.max(1e-6, yMax - yMin);
+  const plotWidth = _plotWidth();
+  const plotHeight = _plotHeight();
+  const index = values.length - 1;
+  const x =
+    values.length === 1
+      ? CHART_MARGIN_LEFT + plotWidth / 2
+      : CHART_MARGIN_LEFT + (index / (values.length - 1)) * plotWidth;
+  const y = CHART_MARGIN_TOP + (1 - (values[index] - yMin) / range) * plotHeight;
+  return { x, y };
 }
 
 export default function AnalyticsPage() {
@@ -363,9 +383,17 @@ export default function AnalyticsPage() {
     () => sparklinePath(customerValues, { yMin: customerScale.yMin, yMax: customerScale.yMax }),
     [customerScale.yMax, customerScale.yMin, customerValues],
   );
+  const customerEndpoint = useMemo(
+    () => sparklineEndpoint(customerValues, { yMin: customerScale.yMin, yMax: customerScale.yMax }),
+    [customerScale.yMax, customerScale.yMin, customerValues],
+  );
 
   const waitSparkline = useMemo(
     () => sparklinePath(waitValues, { yMin: waitScale.yMin, yMax: waitScale.yMax }),
+    [waitScale.yMax, waitScale.yMin, waitValues],
+  );
+  const waitEndpoint = useMemo(
+    () => sparklineEndpoint(waitValues, { yMin: waitScale.yMin, yMax: waitScale.yMax }),
     [waitScale.yMax, waitScale.yMin, waitValues],
   );
 
@@ -426,7 +454,7 @@ export default function AnalyticsPage() {
                     stroke={index === customerScale.yTicks.length - 1 ? "#93c5fd" : "#dbeafe"}
                     strokeWidth="1"
                   />
-                  <text x={CHART_MARGIN_LEFT - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" fontSize="10.5" fontWeight="600">
+                  <text x={CHART_MARGIN_LEFT - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" fontSize="10" fontWeight="600">
                     {tick.label}
                   </text>
                 </g>
@@ -446,14 +474,15 @@ export default function AnalyticsPage() {
                     y={CHART_HEIGHT - CHART_MARGIN_BOTTOM + 18}
                     textAnchor={index === 0 ? "start" : index === customerScale.xTicks.length - 1 ? "end" : "middle"}
                     fill="#64748b"
-                    fontSize="10.5"
+                    fontSize="10"
                     fontWeight="600"
                   >
                     {tick.label}
                   </text>
                 </g>
               ))}
-              <path d={customersSparkline} fill="none" stroke="#0284c7" strokeWidth="3" strokeLinecap="round" />
+              <path d={customersSparkline} fill="none" stroke="#0284c7" strokeWidth="3.5" strokeLinecap="round" />
+              {customerEndpoint ? <circle cx={customerEndpoint.x} cy={customerEndpoint.y} r="4.8" fill="#0284c7" stroke="#ffffff" strokeWidth="2" /> : null}
               <text x={CHART_MARGIN_LEFT} y={CHART_MARGIN_TOP - 3} fill="#64748b" fontSize="11" fontWeight="600">
                 Customers (Y)
               </text>
@@ -479,7 +508,7 @@ export default function AnalyticsPage() {
                     stroke={index === waitScale.yTicks.length - 1 ? "#93c5fd" : "#dbeafe"}
                     strokeWidth="1"
                   />
-                  <text x={CHART_MARGIN_LEFT - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" fontSize="10.5" fontWeight="600">
+                  <text x={CHART_MARGIN_LEFT - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" fontSize="10" fontWeight="600">
                     {tick.label}
                   </text>
                 </g>
@@ -499,14 +528,15 @@ export default function AnalyticsPage() {
                     y={CHART_HEIGHT - CHART_MARGIN_BOTTOM + 18}
                     textAnchor={index === 0 ? "start" : index === waitScale.xTicks.length - 1 ? "end" : "middle"}
                     fill="#64748b"
-                    fontSize="10.5"
+                    fontSize="10"
                     fontWeight="600"
                   >
                     {tick.label}
                   </text>
                 </g>
               ))}
-              <path d={waitSparkline} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+              <path d={waitSparkline} fill="none" stroke="#2563eb" strokeWidth="3.5" strokeLinecap="round" />
+              {waitEndpoint ? <circle cx={waitEndpoint.x} cy={waitEndpoint.y} r="4.8" fill="#2563eb" stroke="#ffffff" strokeWidth="2" /> : null}
               <text x={CHART_MARGIN_LEFT} y={CHART_MARGIN_TOP - 3} fill="#64748b" fontSize="11" fontWeight="600">
                 Wait Minutes (Y)
               </text>

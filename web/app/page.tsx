@@ -271,9 +271,6 @@ export default function Home() {
         <section className="grid gap-3 lg:grid-cols-2">
           {cameraIds.map((cameraId) => {
             const cameraMetrics = metrics?.cameras?.[cameraId];
-            const cars = cameraMetrics?.drive_thru.car_count ?? 0;
-            const passengers = cameraMetrics?.drive_thru.est_passengers ?? 0;
-            const people = cameraMetrics?.in_store.person_count ?? 0;
 
             return (
               <article key={cameraId} className="soft-hover overflow-hidden rounded-2xl border border-sky-300/50 bg-[#0d2741]">
@@ -283,12 +280,6 @@ export default function Home() {
                 </div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={feedUrlByCamera[cameraId]} alt={`${cameraLabels[cameraId]} live stream`} className="block aspect-video w-full object-cover" />
-                <div className="grid grid-cols-2 gap-2 border-t border-sky-700/60 px-3 py-2 text-xs text-sky-100">
-                  <span>Cars: {cars}</span>
-                  <span>Passengers: {passengers.toFixed(1)}</span>
-                  <span>People: {people}</span>
-                  <span>FPS: {cameraMetrics?.performance?.processing_fps?.toFixed(1) ?? "0.0"}</span>
-                </div>
               </article>
             );
           })}
