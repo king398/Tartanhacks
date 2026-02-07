@@ -68,10 +68,12 @@ export default function AnalyticsPage() {
 
         setMetrics(metricsData);
         setReco(recoData);
-        setHistory((prev) => {
-          const next = [...prev, nextPoint];
-          return next.slice(-MAX_HISTORY_POINTS);
-        });
+        if (metricsData.stream_status === "ok") {
+          setHistory((prev) => {
+            const next = [...prev, nextPoint];
+            return next.slice(-MAX_HISTORY_POINTS);
+          });
+        }
         setError(null);
       } catch (err) {
         if (!alive) {
@@ -182,6 +184,11 @@ export default function AnalyticsPage() {
         </div>
 
         {error ? <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+        {metrics?.stream_status === "error" ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Stream is unavailable. {metrics.stream_error ?? "Check source URL, credentials, and network reachability."}
+          </div>
+        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">

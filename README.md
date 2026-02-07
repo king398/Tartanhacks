@@ -85,6 +85,7 @@ Next.js dashboard URL:
 - `http://localhost:3000/analytics`
 
 Use **Custom Stream Source** on the dashboard to switch to your own live stream without restarting the backend.
+You can provide RTSP/HTTP URLs, local file paths, or a webcam index like `0`.
 
 ## Key Environment Variables
 

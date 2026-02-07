@@ -1,6 +1,8 @@
 export type Metrics = {
   timestamp: string;
   stream_source?: string;
+  stream_status?: "ok" | "error" | "initializing" | string;
+  stream_error?: string | null;
   drive_thru: { car_count: number; est_passengers: number };
   in_store: { person_count: number };
   aggregates: {

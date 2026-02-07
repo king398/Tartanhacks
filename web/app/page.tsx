@@ -192,7 +192,7 @@ export default function Home() {
               <input
                 value={sourceDraft}
                 onChange={(event) => setSourceDraft(event.target.value)}
-                placeholder="rtsp://camera-url/live, http://stream-url, or /path/video.mp4"
+                placeholder="rtsp://camera-url/live, http://stream-url, /path/video.mp4, or 0 for webcam"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
               />
             </label>
@@ -218,6 +218,12 @@ export default function Home() {
           {sourceStatus ? <p className="mt-2 text-xs text-emerald-700">{sourceStatus}</p> : null}
           {sourceFormError ? <p className="mt-2 text-xs text-red-600">{sourceFormError}</p> : null}
         </form>
+
+        {metrics?.stream_status === "error" ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Stream is unavailable. {metrics.stream_error ?? "Check stream URL, credentials, and network reachability."}
+          </div>
+        ) : null}
 
         <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr]">
           <div className="soft-hover overflow-hidden rounded-2xl border border-slate-200 bg-slate-900">

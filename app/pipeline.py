@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from ultralytics import YOLO
 class QueueSnapshot:
     timestamp: str
     stream_source: str
+    stream_status: str
+    stream_error: str | None
     drive_thru_car_count: int
     drive_thru_est_passengers: float
     in_store_person_count: int
@@ -30,6 +33,8 @@ class QueueSnapshot:
         return {
             "timestamp": self.timestamp,
             "stream_source": self.stream_source,
+            "stream_status": self.stream_status,
+            "stream_error": self.stream_error,
             "drive_thru": {
                 "car_count": self.drive_thru_car_count,
                 "est_passengers": self.drive_thru_est_passengers,
@@ -75,6 +80,9 @@ class VideoProcessor:
         self.drive_thru_roi = drive_thru_roi
         self.in_store_roi = in_store_roi
         self.device = self._resolve_device(device)
+        self.rtsp_transport = self._parse_rtsp_transport(os.getenv("RTSP_TRANSPORT", "tcp"))
+        self.capture_open_timeout_msec = self._parse_positive_int(os.getenv("CAPTURE_OPEN_TIMEOUT_MSEC"), 10000)
+        self.capture_read_timeout_msec = self._parse_positive_int(os.getenv("CAPTURE_READ_TIMEOUT_MSEC"), 10000)
 
         self._model = YOLO(model_name)
         self._vehicle_labels = {"car", "truck", "motorcycle", "bus"}
@@ -134,9 +142,12 @@ class VideoProcessor:
         last_frame_tick: float | None = None
         while not self._stop_event.is_set():
             video_path, source_version = self._get_video_source_state()
-            cap = cv2.VideoCapture(video_path)
+            cap = self._open_capture(video_path)
             if not cap.isOpened():
-                self._draw_error_frame(f"Cannot open video: {video_path}", stream_source=video_path)
+                self._draw_error_frame(
+                    "Cannot open stream. Check URL, credentials, network, and codec support.",
+                    stream_source=video_path,
+                )
                 self._stop_event.wait(1.0)
                 continue
 
@@ -252,6 +263,8 @@ class VideoProcessor:
         snapshot = QueueSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             stream_source=stream_source,
+            stream_status="ok",
+            stream_error=None,
             drive_thru_car_count=car_count,
             drive_thru_est_passengers=est_passengers,
             in_store_person_count=person_count,
@@ -315,11 +328,15 @@ class VideoProcessor:
         error_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         cv2.putText(error_frame, "Video Stream Error", (60, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
         cv2.putText(error_frame, message[:90], (60, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        source_label = f"Source: {stream_source}"
+        cv2.putText(error_frame, source_label[:110], (60, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 220, 255), 2)
         with self._lock:
             self._latest_frame = error_frame
             self._latest_snapshot = QueueSnapshot(
                 timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 stream_source=stream_source,
+                stream_status="error",
+                stream_error=message,
                 drive_thru_car_count=0,
                 drive_thru_est_passengers=0.0,
                 in_store_person_count=0,
@@ -335,6 +352,8 @@ class VideoProcessor:
         return QueueSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             stream_source=self.get_video_source(),
+            stream_status="initializing",
+            stream_error=None,
             drive_thru_car_count=0,
             drive_thru_est_passengers=0.0,
             in_store_person_count=0,
@@ -410,3 +429,44 @@ class VideoProcessor:
                 return None
             frame = maybe_frame
         return frame
+
+    @staticmethod
+    def _parse_positive_int(value: str | None, default: int) -> int:
+        if value is None:
+            return default
+        try:
+            parsed = int(value)
+        except ValueError:
+            return default
+        return parsed if parsed > 0 else default
+
+    @staticmethod
+    def _parse_rtsp_transport(value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized in {"tcp", "udp"}:
+            return normalized
+        return "tcp"
+
+    @staticmethod
+    def _normalize_capture_source(source: str) -> str | int:
+        candidate = source.strip()
+        if candidate.isdigit():
+            return int(candidate)
+        return candidate
+
+    def _open_capture(self, source: str) -> cv2.VideoCapture:
+        normalized = self._normalize_capture_source(source)
+
+        if isinstance(normalized, str) and normalized.lower().startswith(("rtsp://", "rtsps://")):
+            options = (
+                f"rtsp_transport;{self.rtsp_transport}|"
+                f"stimeout;{self.capture_open_timeout_msec * 1000}|"
+                f"rw_timeout;{self.capture_read_timeout_msec * 1000}"
+            )
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = options
+            cap = cv2.VideoCapture(normalized, cv2.CAP_FFMPEG)
+            if cap.isOpened():
+                return cap
+            cap.release()
+
+        return cv2.VideoCapture(normalized)
