@@ -18,7 +18,7 @@ import type {
 const FEEDBACK_WINDOW_MIN = 240;
 const FEEDBACK_LIMIT = 200;
 
-type SortMode = "urgency" | "item" | "waste_risk";
+type SortMode = "item" | "waste_risk";
 type DecisionAction = RecommendationFeedbackAction;
 type ShortcutAction = "accept" | "ignore";
 type ItemIconType = "fries" | "fillet" | "nuggets" | "strips" | "generic";
@@ -43,26 +43,7 @@ type PreparedRecommendation = {
   horizonMin: number;
   horizonLabel: string;
   actionImpact: number;
-  attentionNeeded: boolean;
   iconType: ItemIconType;
-};
-
-const urgencyOrder: Record<RecommendationItem["urgency"], number> = {
-  high: 0,
-  medium: 1,
-  low: 2,
-};
-
-const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
-  high: "border-red-300 bg-red-100 text-red-800",
-  medium: "border-orange-300 bg-orange-100 text-orange-800",
-  low: "border-emerald-300 bg-emerald-100 text-emerald-800",
-};
-
-const urgencyCardTone: Record<RecommendationItem["urgency"], string> = {
-  high: "border-red-400 bg-[#fff4f4]",
-  medium: "border-orange-300 bg-[#fff8ef]",
-  low: "border-emerald-300 bg-[#f3fbf6]",
 };
 
 function formatMoney(value: number): string {
@@ -145,7 +126,6 @@ function recommendationSignature(item: RecommendationItem): string {
     Math.round(numbers.recommendedUnits * 10) / 10,
     Math.round(numbers.baselineUnits * 10) / 10,
     Math.round(demandUnits * 10) / 10,
-    item.urgency,
     Number(item.decision_locked ? 1 : 0),
     Math.round(Number(item.next_decision_in_sec ?? 0)),
   ].join("|");
@@ -289,9 +269,7 @@ export default function RecommendationActivityPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
-  const [sortMode, setSortMode] = useState<SortMode>("urgency");
-  const [showAttentionOnly, setShowAttentionOnly] = useState<boolean>(false);
-
+  const [sortMode, setSortMode] = useState<SortMode>("item");
   const [overrideDraftByItem, setOverrideDraftByItem] = useState<Record<string, string>>({});
   const [feedbackBusyByItem, setFeedbackBusyByItem] = useState<Record<string, boolean>>({});
   const [feedbackStatusByItem, setFeedbackStatusByItem] = useState<Record<string, string | null>>({});
@@ -571,7 +549,6 @@ export default function RecommendationActivityPage() {
         );
 
       const actionImpact = Math.max(0, baselineUnits - recommendedUnits);
-      const attentionNeeded = recommendedUnits > 0 || item.urgency === "high";
 
       return {
         item,
@@ -587,7 +564,6 @@ export default function RecommendationActivityPage() {
         horizonMin,
         horizonLabel: `Next ${horizonMin} ${horizonMin === 1 ? "minute" : "minutes"}`,
         actionImpact,
-        attentionNeeded,
         iconType: inferItemIconType(item),
       };
     });
@@ -601,15 +577,15 @@ export default function RecommendationActivityPage() {
         if (b.wasteRiskPct !== a.wasteRiskPct) {
           return b.wasteRiskPct - a.wasteRiskPct;
         }
-        if (urgencyOrder[a.item.urgency] !== urgencyOrder[b.item.urgency]) {
-          return urgencyOrder[a.item.urgency] - urgencyOrder[b.item.urgency];
+        if (b.actionImpact !== a.actionImpact) {
+          return b.actionImpact - a.actionImpact;
         }
-        return b.actionImpact - a.actionImpact;
+        if (b.recommendedUnits !== a.recommendedUnits) {
+          return b.recommendedUnits - a.recommendedUnits;
+        }
+        return a.item.label.localeCompare(b.item.label);
       }
 
-      if (urgencyOrder[a.item.urgency] !== urgencyOrder[b.item.urgency]) {
-        return urgencyOrder[a.item.urgency] - urgencyOrder[b.item.urgency];
-      }
       if (b.actionImpact !== a.actionImpact) {
         return b.actionImpact - a.actionImpact;
       }
@@ -619,12 +595,8 @@ export default function RecommendationActivityPage() {
       return a.item.label.localeCompare(b.item.label);
     });
 
-    if (showAttentionOnly) {
-      return sorted.filter((entry) => entry.attentionNeeded);
-    }
-
     return sorted;
-  }, [reco, showAttentionOnly, sortMode]);
+  }, [reco, sortMode]);
 
   const allRecommendationCards = useMemo<PreparedRecommendation[]>(() => {
     const horizonForDemand = Math.max(1, Number(reco?.forecast.horizon_min ?? 15));
@@ -658,7 +630,6 @@ export default function RecommendationActivityPage() {
         horizonMin: Math.max(1, Number(reco?.forecast.horizon_min ?? 15)),
         horizonLabel: `Next ${Math.max(1, Number(reco?.forecast.horizon_min ?? 15))} minutes`,
         actionImpact: Math.max(0, baselineUnits - recommendedUnits),
-        attentionNeeded: recommendedUnits > 0 || item.urgency === "high",
         iconType: inferItemIconType(item),
       };
     });
@@ -739,12 +710,6 @@ export default function RecommendationActivityPage() {
     () => (feedbackSummary?.adoption.adoption_rate ?? 0) * 100,
     [feedbackSummary?.adoption.adoption_rate],
   );
-  const realizedSavingsUsd = feedbackSummary?.outcomes.realized_cost_delta_usd ?? 0;
-  const forecastMaeCustomers = feedbackSummary?.prediction_impact.forecast_mae_customers ?? 0;
-  const forecastBiasCustomers = feedbackSummary?.prediction_impact.forecast_bias_customers ?? 0;
-  const forecastDirection = feedbackSummary?.prediction_impact.direction ?? "pending";
-  const feedbackEvaluated = feedbackSummary?.outcomes.evaluated ?? 0;
-  const avgFeedbackMultiplier = feedbackSummary?.model_adaptation?.avg_multiplier ?? 1.0;
 
   const totalRecommendedByUnit = useMemo(() => {
     const totals = new Map<string, number>();
@@ -771,17 +736,6 @@ export default function RecommendationActivityPage() {
     return recommendationMap.get(activeItemKey)?.item.label ?? "";
   }, [activeItemKey, recommendationMap]);
 
-  const mediumUrgencyShortfallRatio = Math.max(
-    0,
-    Math.min(1, Number(reco?.assumptions.urgency_thresholds?.medium_shortfall_ratio ?? 0.15)),
-  );
-  const highUrgencyShortfallRatio = Math.max(
-    mediumUrgencyShortfallRatio,
-    Math.min(1, Number(reco?.assumptions.urgency_thresholds?.high_shortfall_ratio ?? 0.35)),
-  );
-  const mediumUrgencyShortfallPct = mediumUrgencyShortfallRatio * 100;
-  const highUrgencyShortfallPct = highUrgencyShortfallRatio * 100;
-
   return (
     <main className="mx-auto grid w-[min(1400px,calc(100%-24px))] gap-3 py-3 md:w-[min(1400px,calc(100%-36px))] md:py-4">
       <section className="panel rounded-3xl p-4 md:p-5">
@@ -789,7 +743,7 @@ export default function RecommendationActivityPage() {
           <div>
             <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">Recommended Activity</h1>
             <p className="text-sm text-muted md:text-base">
-              Full-screen view of live unit-drop recommendations, urgency, and measured feedback outcomes.
+              Full-screen view of live unit-drop recommendations and measured feedback outcomes.
             </p>
           </div>
         </div>
@@ -824,20 +778,9 @@ export default function RecommendationActivityPage() {
                   onChange={(event) => setSortMode(event.target.value as SortMode)}
                   className="bg-transparent text-sm font-semibold text-slate-800 focus:outline-none"
                 >
-                  <option value="urgency">Urgency</option>
                   <option value="item">Item name</option>
                   <option value="waste_risk">Waste risk</option>
                 </select>
-              </label>
-
-              <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={showAttentionOnly}
-                  onChange={(event) => setShowAttentionOnly(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-sky-600 accent-sky-600"
-                />
-                Show only items needing attention
               </label>
             </div>
           </div>
@@ -855,7 +798,7 @@ export default function RecommendationActivityPage() {
             const controlsDisabled = busy || backendDecisionLocked || actionLocked;
             const selectedAction = selectedActionByItem[item.item] ?? null;
             const isActive = activeItemKey === item.item;
-            const shouldDim = card.recommendedUnits === 0 || item.urgency === "low";
+            const shouldDim = card.recommendedUnits === 0;
 
             const overrideDraft = overrideDraftByItem[item.item] ?? "";
             const hasOverrideDraft = overrideDraft.trim().length > 0;
@@ -874,14 +817,13 @@ export default function RecommendationActivityPage() {
                 onMouseEnter={() => setActiveItemKey(item.item)}
                 className={[
                   "h-full rounded-3xl border p-4 shadow-sm transition-all duration-200 md:p-6",
-                  urgencyCardTone[item.urgency],
                   shouldDim ? "opacity-[0.84]" : "opacity-100",
                   isActive ? "ring-2 ring-sky-300 ring-offset-1" : "",
                   pulseByItem[item.item] ? "recommendation-pulse" : "",
                 ].join(" ")}
                 style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
               >
-                <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="mb-4">
                   <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">Item</p>
                     <div className="mt-1 flex items-center gap-2">
@@ -891,10 +833,6 @@ export default function RecommendationActivityPage() {
                       <h2 className="display truncate text-3xl leading-tight font-bold text-slate-900 md:text-5xl">{item.label}</h2>
                     </div>
                   </div>
-
-                  <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
-                    {item.urgency}
-                  </span>
                 </div>
 
                 <div className="rounded-2xl border border-slate-300 bg-white p-6">
@@ -919,7 +857,6 @@ export default function RecommendationActivityPage() {
                     </span>
                   </div>
 
-                  <p className="mt-2 text-xs text-slate-600">Based on last {Math.max(1, Number(reco?.forecast.horizon_min ?? 15))} min demand.</p>
                 </div>
 
                 <details className="mt-3 rounded-2xl border border-slate-300 bg-white p-6 text-xs text-slate-700">
@@ -972,17 +909,12 @@ export default function RecommendationActivityPage() {
                   </div>
                 </details>
 
-                <div className="mt-3 rounded-2xl border border-slate-300 bg-white p-4">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">Operator Feedback</p>
-                    {backendDecisionLocked ? (
-                      <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                        Locked {Math.max(0, Number(item.next_decision_in_sec ?? 0))}s
-                      </span>
-                    ) : null}
+                <div className="mt-2 rounded-xl border border-slate-300 bg-white p-3">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-600">Operator Feedback</p>
                   </div>
 
-                  <div className={`flex flex-wrap gap-2 ${actionLocked ? "opacity-55" : ""}`} role="radiogroup" aria-label={`Feedback choice for ${item.label}`}>
+                  <div className={`flex flex-wrap gap-1.5 ${actionLocked ? "opacity-55" : ""}`} role="radiogroup" aria-label={`Feedback choice for ${item.label}`}>
                     <button
                       type="button"
                       disabled={controlsDisabled}
@@ -991,7 +923,7 @@ export default function RecommendationActivityPage() {
                         void applyFeedback(item, "accept");
                       }}
                       className={[
-                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition",
                         selectedAction === "accept"
                           ? "border-emerald-500 bg-emerald-600 text-white shadow-sm"
                           : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50",
@@ -1010,7 +942,7 @@ export default function RecommendationActivityPage() {
                         void applyFeedback(item, "ignore");
                       }}
                       className={[
-                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition",
                         selectedAction === "ignore"
                           ? "border-amber-500 bg-amber-500 text-white shadow-sm"
                           : "border-amber-300 bg-white text-amber-700 hover:bg-amber-50",
@@ -1022,7 +954,7 @@ export default function RecommendationActivityPage() {
                     </button>
                   </div>
 
-                  <div className={`mt-2.5 flex flex-wrap items-center gap-2 ${actionLocked ? "opacity-55" : ""}`}>
+                  <div className={`mt-2 flex flex-wrap items-center gap-1.5 ${actionLocked ? "opacity-55" : ""}`}>
                     <label htmlFor={`override-${item.item}`} className="text-xs font-semibold text-slate-700">
                       Override to:
                     </label>
@@ -1041,7 +973,7 @@ export default function RecommendationActivityPage() {
                           [item.item]: event.target.value,
                         }))
                       }
-                      className="accent-input w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
+                      className="accent-input w-24 rounded-lg border border-slate-300 px-2 py-0.5 text-xs text-slate-800 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
                     />
 
                     <button
@@ -1049,7 +981,7 @@ export default function RecommendationActivityPage() {
                       disabled={overrideApplyDisabled}
                       onClick={() => void applyFeedback(item, "override")}
                       className={[
-                        "rounded-lg border px-3 py-1 text-xs font-semibold transition",
+                        "rounded-lg border px-2.5 py-0.5 text-[11px] font-semibold transition",
                         hasOverrideDraft
                           ? "border-sky-400 bg-sky-600 text-white hover:brightness-105"
                           : "border-slate-300 bg-slate-100 text-slate-500",
@@ -1061,7 +993,7 @@ export default function RecommendationActivityPage() {
                   </div>
 
                   {currentDecision ? (
-                    <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
+                    <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-800">
                       <div className="flex items-center gap-1.5">
                         {currentDecision.action === "ignore"
                           ? <SkipIcon className="h-3.5 w-3.5" />
@@ -1084,7 +1016,7 @@ export default function RecommendationActivityPage() {
                     </p>
                   ) : null}
 
-                  <p className="mt-1.5 text-[11px] text-slate-500">
+                  <p className="mt-1 text-[10px] text-slate-500">
                     Shortcuts: Accept (A)  Ignore (I){isActive && activeCardLabel ? ` for ${activeCardLabel}` : ""}
                   </p>
                 </div>
@@ -1097,7 +1029,7 @@ export default function RecommendationActivityPage() {
           )}
         </section>
 
-        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
           <article className="soft-hover accent-card rounded-2xl border p-3">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Queue State</p>
             <p className="mt-2 display text-2xl font-semibold capitalize text-sky-900">{reco?.forecast.queue_state ?? "unknown"}</p>
@@ -1136,38 +1068,8 @@ export default function RecommendationActivityPage() {
             </p>
           </article>
 
-          <article className="soft-hover accent-card rounded-2xl border p-3">
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Realized Savings</p>
-            <p className="mt-2 display text-2xl font-semibold text-emerald-700">{formatMoney(realizedSavingsUsd)}</p>
-            <p className="text-sm text-muted">Measured over {feedbackEvaluated} evaluated actions</p>
-          </article>
-
-          <article className="soft-hover accent-card rounded-2xl border p-3">
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Forecast Error (MAE)</p>
-            <p className="mt-2 display text-2xl font-semibold text-sky-700">{forecastMaeCustomers.toFixed(2)}</p>
-            <p className="text-sm text-muted">
-              Bias {forecastBiasCustomers.toFixed(2)} ({forecastDirection}), avg multiplier {avgFeedbackMultiplier.toFixed(2)}x
-            </p>
-          </article>
         </div>
 
-        <section className="mt-3 rounded-2xl border accent-card p-4">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">Urgency Legend</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full border border-red-300 bg-red-100 px-2.5 py-1 font-semibold text-red-800">
-              High: shortfall {highUrgencyShortfallPct.toFixed(0)}%+
-            </span>
-            <span className="rounded-full border border-orange-300 bg-orange-100 px-2.5 py-1 font-semibold text-orange-800">
-              Medium: {mediumUrgencyShortfallPct.toFixed(0)}% to &lt; {highUrgencyShortfallPct.toFixed(0)}%
-            </span>
-            <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-1 font-semibold text-emerald-800">
-              Low: below {mediumUrgencyShortfallPct.toFixed(0)}%
-            </span>
-          </div>
-          <p className="mt-2 text-xs text-slate-600">
-            Per item formula: shortfall ratio = max(0, projected demand - (ready + fryer inventory)) / projected demand.
-          </p>
-        </section>
       </section>
     </main>
   );

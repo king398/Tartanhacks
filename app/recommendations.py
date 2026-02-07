@@ -632,7 +632,7 @@ class RecommendationEngine:
                     "based on configured max unit size."
                 )
             if not decision_due:
-                reason = f"{reason} Decision lock active for {next_decision_in_sec}s to avoid oscillation."
+                reason = f"{reason} Decision lock active to avoid oscillation."
 
             recommendations.append(
                 {

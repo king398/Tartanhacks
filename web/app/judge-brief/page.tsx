@@ -18,12 +18,6 @@ const checkStatusBadge: Record<DemoReadinessCheckStatus, string> = {
   fail: "bg-red-100 text-red-700 border-red-200",
 };
 
-const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
-  high: "bg-red-100 text-red-700 border-red-200",
-  medium: "bg-yellow-100 text-yellow-800 border-yellow-300",
-  low: "bg-emerald-100 text-emerald-700 border-emerald-200",
-};
-
 function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
@@ -196,11 +190,8 @@ export default function JudgeBriefPage() {
           <h2 className="display text-xl font-semibold text-graphite">Action Recommendation</h2>
           {topAction && topActionNumbers ? (
             <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
                 <h3 className="display text-lg font-semibold text-graphite">{topAction.label}</h3>
-                <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.08em] ${urgencyBadge[topAction.urgency]}`}>
-                  {topAction.urgency}
-                </span>
               </div>
               <p className="mt-2 text-sm text-slate-700">
                 Recommended drop <span className="font-semibold">{topActionNumbers.recommendedUnits} {topActionUnitLabel}</span>, baseline {topActionNumbers.baselineUnits} {topActionUnitLabel}.
@@ -213,11 +204,6 @@ export default function JudgeBriefPage() {
               <p className="mt-1 text-sm text-slate-700">
                 Delta: <span className="font-semibold">{topActionNumbers.deltaUnits > 0 ? `+${topActionNumbers.deltaUnits}` : topActionNumbers.deltaUnits} {topActionUnitLabel}</span>
               </p>
-              {topAction.next_decision_in_sec !== undefined ? (
-                <p className="mt-1 text-xs text-muted">
-                  {topAction.decision_locked ? `Next decision in ${topAction.next_decision_in_sec}s.` : `Decision refreshed. Next update in ${topAction.next_decision_in_sec}s.`}
-                </p>
-              ) : null}
               <p className="mt-2 text-xs text-muted">{topAction.reason}</p>
             </div>
           ) : (

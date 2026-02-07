@@ -367,7 +367,7 @@ export default function AnalyticsPage() {
     const wait = metrics.aggregates.estimated_wait_time_min;
 
     if (state === "surging") {
-      return `Demand is rising (${trend.toFixed(2)} customers/min) and current wait is ${wait.toFixed(1)} min. Prioritize high-urgency unit increases now.`;
+      return `Demand is rising (${trend.toFixed(2)} customers/min) and current wait is ${wait.toFixed(1)} min. Prioritize recommended unit increases now.`;
     }
 
     if (state === "falling") {
