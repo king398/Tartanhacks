@@ -294,21 +294,6 @@ class VideoProcessor:
         total_customers = round(est_passengers + person_count, 1)
         estimated_wait = round((total_customers * self.avg_service_time_sec) / 60.0, 1)
 
-        if drive_roi:
-            self._draw_roi(draw, drive_roi, "Drive-Thru ROI", (24, 136, 255))
-        if store_roi:
-            self._draw_roi(draw, store_roi, "In-Store ROI", (78, 204, 163))
-
-        self._draw_hud(
-            draw,
-            car_count=car_count,
-            est_passengers=est_passengers,
-            person_count=person_count,
-            total_customers=total_customers,
-            estimated_wait=estimated_wait,
-            processing_fps=processing_fps,
-        )
-
         snapshot = QueueSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             stream_source=stream_source,
@@ -527,39 +512,6 @@ class VideoProcessor:
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.rectangle(frame, (x1, max(0, y1 - 22)), (min(x2, x1 + 220), y1), color, -1)
         cv2.putText(frame, label[:28], (x1 + 4, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-    @staticmethod
-    def _draw_roi(frame: np.ndarray, roi: tuple[int, int, int, int], label: str, color: tuple[int, int, int]) -> None:
-        x1, y1, x2, y2 = roi
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(frame, label, (x1 + 8, y1 + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-
-    @staticmethod
-    def _draw_hud(
-        frame: np.ndarray,
-        car_count: int,
-        est_passengers: float,
-        person_count: int,
-        total_customers: float,
-        estimated_wait: float,
-        processing_fps: float,
-    ) -> None:
-        lines = [
-            f"Drive-thru cars: {car_count}",
-            f"Estimated passengers: {est_passengers}",
-            f"In-store people: {person_count}",
-            f"Total customers: {total_customers}",
-            f"Estimated wait (min): {estimated_wait}",
-            f"Processing FPS: {processing_fps:.1f}",
-        ]
-        box_width = 380
-        box_height = 30 + (len(lines) * 28)
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (20, 20), (20 + box_width, 20 + box_height), (20, 20, 20), -1)
-        cv2.addWeighted(overlay, 0.65, frame, 0.35, 0, frame)
-        for i, line in enumerate(lines):
-            y = 50 + (i * 28)
-            cv2.putText(frame, line, (35, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     def _draw_error_frame(self, message: str, stream_source: str) -> None:
         error_frame = np.zeros((720, 1280, 3), dtype=np.uint8)

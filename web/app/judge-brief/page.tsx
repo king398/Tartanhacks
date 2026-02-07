@@ -210,14 +210,10 @@ export default function JudgeBriefPage() {
             <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">Waiting for recommendations...</div>
           )}
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3">
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Wait Reduction</p>
               <p className="mt-1 display text-xl font-semibold text-amber-700">{reco?.impact.estimated_wait_reduction_min?.toFixed(1) ?? "0.0"} min</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Waste Avoided</p>
-              <p className="mt-1 display text-xl font-semibold text-emerald-700">{reco?.impact.estimated_waste_avoided_units?.toFixed(1) ?? "0.0"} units</p>
             </div>
           </div>
         </article>

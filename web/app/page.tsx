@@ -184,23 +184,17 @@ export default function Home() {
 
   const impactFormulaInputs = useMemo(() => {
     const projectedCustomers = reco?.forecast.projected_customers ?? 0;
-    const wasteAvoidedUnits = reco?.impact.estimated_waste_avoided_units ?? 0;
-    const costSavedUsd = reco?.impact.estimated_cost_saved_usd ?? 0;
     const waitReductionMin = reco?.impact.estimated_wait_reduction_min ?? 0;
     const avgTicketUsd = reco?.assumptions.avg_ticket_usd ?? 0;
     const queuePressure = Math.max(0, Math.min(1, projectedCustomers / 24));
     const expectedConversionLift = Math.max(0, Math.min(0.16, waitReductionMin * 0.025));
-    const impliedSavedUnitCost = wasteAvoidedUnits > 0 ? costSavedUsd / wasteAvoidedUnits : 0;
 
     return {
       projectedCustomers,
-      wasteAvoidedUnits,
-      costSavedUsd,
       waitReductionMin,
       avgTicketUsd,
       queuePressure,
       expectedConversionLift,
-      impliedSavedUnitCost,
     };
   }, [reco]);
 
@@ -325,14 +319,6 @@ export default function Home() {
 
           <div className="mt-3 grid gap-2.5">
             <article className="soft-hover accent-card rounded-2xl border p-3">
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Waste Avoided</p>
-              <p className="mt-2 display text-2xl font-semibold text-emerald-700">{reco?.impact.estimated_waste_avoided_units?.toFixed(1) ?? "0.0"} units</p>
-            </article>
-            <article className="soft-hover accent-card rounded-2xl border p-3">
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Cost Savings</p>
-              <p className="mt-2 display text-2xl font-semibold text-sky-700">{formatMoney(reco?.impact.estimated_cost_saved_usd ?? 0)}</p>
-            </article>
-            <article className="soft-hover accent-card rounded-2xl border p-3">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Revenue Protected</p>
               <p className="mt-2 display text-2xl font-semibold gradient-text">{formatMoney(reco?.impact.estimated_revenue_protected_usd ?? 0)}</p>
             </article>
@@ -356,26 +342,6 @@ export default function Home() {
               How are these calculated? (show formulas)
             </summary>
             <div className="mt-2 space-y-2 text-xs leading-relaxed md:text-sm">
-              <p>
-                <span className="font-semibold">Waste Avoided</span>
-                {" = "}
-                <span className="font-mono">sum(max(baseline_units - recommended_units, 0))</span>
-              </p>
-              <p>
-                Live value: <span className="font-semibold">{impactFormulaInputs.wasteAvoidedUnits.toFixed(1)} units</span>
-              </p>
-
-              <p>
-                <span className="font-semibold">Cost Savings</span>
-                {" = "}
-                <span className="font-mono">sum(saved_units * unit_cost_usd)</span>
-              </p>
-              <p>
-                Live value: <span className="font-semibold">{formatMoney(impactFormulaInputs.costSavedUsd)}</span>
-                {" "}
-                (implied blended cost per saved unit: {formatMoney(impactFormulaInputs.impliedSavedUnitCost)})
-              </p>
-
               <p>
                 <span className="font-semibold">Expected Wait Reduction</span>
                 {" = "}
