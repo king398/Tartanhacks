@@ -10,6 +10,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { href: "/", label: "Live View" },
+  { href: "/judge-brief", label: "Judge Brief" },
   { href: "/analytics", label: "Analytics" },
   { href: "/recommendation-activity", label: "Recommended Activity" },
   { href: "/business-profile", label: "Business Profile" },

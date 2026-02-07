@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -8,6 +9,8 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _utc_iso_now() -> str:
@@ -147,7 +150,7 @@ class AnalyticsStore:
                 point = self._build_point(metrics, recommendation)
                 row_id = self._insert_point(point)
             except Exception as exc:  # pragma: no cover - guardrail for runtime stability
-                print(f"[analytics] collector error: {exc}")
+                LOGGER.exception("Analytics collector error: %s", exc)
                 self._stop_event.wait(self.sample_interval_sec)
                 continue
 
@@ -173,7 +176,7 @@ class AnalyticsStore:
             if self._latest_id <= point_id:
                 return None
 
-            for point in reversed(self._history):
+            for point in self._history:
                 if int(point.get("id", 0)) > point_id:
                     return dict(point)
 

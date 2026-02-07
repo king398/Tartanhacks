@@ -74,7 +74,8 @@ export default function RecommendationActivityPage() {
 
   const liveInStorePeople = Number(metrics?.in_store?.person_count ?? 0);
   const liveDriveThruCars = Number(metrics?.drive_thru?.car_count ?? 0);
-  const actualCustomers = liveInStorePeople + liveDriveThruCars;
+  const liveDriveThruPassengers = Number(metrics?.drive_thru?.est_passengers ?? 0);
+  const actualCustomers = Number(metrics?.aggregates?.total_customers ?? liveInStorePeople + liveDriveThruPassengers);
 
   return (
     <main className="mx-auto grid w-[min(1400px,calc(100%-24px))] gap-3 py-3 md:w-[min(1400px,calc(100%-36px))] md:py-4">
@@ -159,7 +160,7 @@ export default function RecommendationActivityPage() {
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Actual Customers</p>
             <p className="mt-2 display text-2xl font-semibold text-sky-700">{actualCustomers.toFixed(1)}</p>
             <p className="text-sm text-muted">
-              {liveInStorePeople} people + {liveDriveThruCars} cars
+              {liveInStorePeople} in-store + {liveDriveThruPassengers.toFixed(1)} drive-thru est. passengers ({liveDriveThruCars} cars)
             </p>
           </article>
           <article className="soft-hover accent-card rounded-2xl border p-3">

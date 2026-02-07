@@ -409,21 +409,44 @@ class RecommendationEngine:
 
         trend_per_min = self._trend_per_min()
         queue_state = self._state_from_trend(trend_per_min)
-        effective_customers = max(0.0, current_customers)
+        stabilized_customers = self._stabilized_customer_count(current_customers)
+        projected_customers = max(0.0, stabilized_customers + (trend_per_min * max(0.0, self.forecast_horizon_min)))
+        effective_customers = projected_customers
 
-        urgency_by_customer_load = self._urgency_from_customer_count(effective_customers)
+        urgency_by_customer_load = self._urgency_from_customer_count(max(current_customers, projected_customers))
+
+        self._advance_inventory(timestamp=timestamp, customer_load=current_customers)
+        decision_due, next_decision_in_sec = self._decision_due(timestamp)
 
         recommendations: list[dict[str, Any]] = []
         waste_avoided_units = 0.0
         cost_saved_usd = 0.0
 
         for profile in self.item_profiles:
+            state = self._inventory[profile.key]
             max_units = int(profile.max_unit_size)
             baseline_units = min(int(profile.baseline_drop_units), max_units)
 
             raw_target_units = max(0.0, effective_customers * profile.units_per_order)
             rounded_target_units = self._round_to_nearest_unit(raw_target_units)
-            recommended_units = min(rounded_target_units, max_units)
+            target_units = min(rounded_target_units, max_units)
+
+            if decision_due:
+                recommended_units = target_units
+                self._last_decision_by_item[profile.key] = recommended_units
+                if recommended_units > 0:
+                    state.fryer_lots.append(
+                        FryerLot(
+                            units=recommended_units,
+                            ready_at=timestamp + timedelta(seconds=self.cook_time_sec),
+                        )
+                    )
+            else:
+                held_units = int(self._last_decision_by_item.get(profile.key, target_units))
+                recommended_units = min(max(0, held_units), max_units)
+
+            ready_inventory_units = max(0, self._round_to_nearest_unit(state.ready_units))
+            fryer_inventory_units = max(0, self._fryer_units(state))
 
             saved_units = max(0.0, float(baseline_units - recommended_units))
             waste_avoided_units += saved_units
@@ -432,10 +455,11 @@ class RecommendationEngine:
             delta_units = recommended_units - baseline_units
 
             reason = (
-                f"{effective_customers:.1f} total customers (drive-thru + in-store) x {profile.units_per_order:.2f} "
+                f"Projected {effective_customers:.1f} customers in {self.forecast_horizon_min:.1f} min "
+                f"(current {current_customers:.1f}, trend {trend_per_min:.2f}/min) x {profile.units_per_order:.2f} "
                 f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f}. "
                 f"Rounded to nearest whole unit => "
-                f"{self._qty(rounded_target_units, unit_label=profile.unit_label)}; "
+                f"{self._qty(target_units, unit_label=profile.unit_label)}; "
                 f"drop {self._qty(recommended_units, unit_label=profile.unit_label)} now."
             )
 
@@ -444,6 +468,8 @@ class RecommendationEngine:
                     f"{reason} Capped at {self._qty(profile.max_unit_size, unit_label=profile.unit_label)} "
                     "based on configured max unit size."
                 )
+            if not decision_due:
+                reason = f"{reason} Decision lock active for {next_decision_in_sec}s to avoid oscillation."
 
             recommendations.append(
                 {
@@ -455,10 +481,17 @@ class RecommendationEngine:
                     "unit_label": self._unit_label(profile.unit_label),
                     "delta_units": delta_units,
                     "forecast_window_demand_units": round(raw_target_units, 1),
+                    "ready_inventory_units": ready_inventory_units,
+                    "fryer_inventory_units": fryer_inventory_units,
+                    "decision_locked": not decision_due,
+                    "next_decision_in_sec": next_decision_in_sec,
                     "urgency": urgency_by_customer_load,
                     "reason": reason,
                 }
             )
+
+        if decision_due:
+            self._last_decision_timestamp = timestamp
 
         queue_pressure = self._clamp(effective_customers / 24.0, 0.0, 1.0)
         wait_reduction_min = self._clamp((waste_avoided_units / 8.0) + (queue_pressure * 1.5), 0.2, 3.2)
@@ -473,7 +506,7 @@ class RecommendationEngine:
                 "queue_state": queue_state,
                 "trend_customers_per_min": round(trend_per_min, 2),
                 "current_customers": round(current_customers, 1),
-                "projected_customers": round(effective_customers, 1),
+                "projected_customers": round(projected_customers, 1),
                 "confidence": self._confidence(processing_fps),
             },
             "recommendations": recommendations,
@@ -490,7 +523,8 @@ class RecommendationEngine:
                 "cook_time_sec": int(round(self.cook_time_sec)),
                 "avg_ticket_usd": round(self.avg_ticket_usd, 2),
                 "notes": [
-                    "Drop sizing is based on current total customer count (drive-thru + in-store) and per-order item averages.",
+                    "Drop sizing is based on projected customer count (drive-thru + in-store) and per-order item averages.",
+                    "Decisions are held for a short interval to reduce recommendation oscillation.",
                     "Each item recommendation is rounded to the nearest whole unit.",
                     "Recommendations are capped at each item's configured max unit size.",
                     "Business impact values are directional estimates for decision support.",

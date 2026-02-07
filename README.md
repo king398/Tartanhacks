@@ -3,7 +3,7 @@
 This project is a real-time AI decision-support system for fast-food operations.
 
 Pipeline:
-`Video Feed -> YOLO + ByteTrack -> Queue Metrics -> Recommendation Engine -> Ops Dashboard`
+`Video Feed -> YOLO (ByteTrack where configured) -> Queue Metrics -> Recommendation Engine -> Ops Dashboard`
 
 ## Core Components
 
@@ -109,7 +109,7 @@ Recommendations and impact values update from this profile, including per-item u
 
 ## Key Environment Variables
 
-- `VIDEO_PATH`: input video path.
+- `VIDEO_PATH`: input video path (default `https://www.youtube.com/watch?v=NK3S_T0Sabk`).
 - `YOLO_MODEL`: default `yolo11s.pt` (global default model for all cameras).
 - `DRIVE_THRU_YOLO_MODEL` / `IN_STORE_YOLO_MODEL`: optional per-camera model overrides.
 - `YOLO_DEVICE`: default `cuda:0` to target GPU (also supports `auto`, `0`, or `cpu`).
@@ -118,8 +118,8 @@ Recommendations and impact values update from this profile, including per-item u
 - `YOLO_TENSORRT`: enable TensorRT engine usage/export on CUDA (default `false`).
 - `YOLO_TRT_ENGINE`: optional explicit `.engine` path; if unset and `YOLO_MODEL` is `.pt`, the app uses `{YOLO_MODEL stem}.engine`.
 - `DRIVE_THRU_YOLO_TRT_ENGINE` / `IN_STORE_YOLO_TRT_ENGINE`: optional per-camera engine overrides.
-- `DRIVE_THRU_VIDEO_PATH`: optional source override for drive-thru camera.
-- `IN_STORE_VIDEO_PATH`: optional source override for in-store camera (defaults to `sample1.mp4`).
+- `DRIVE_THRU_VIDEO_PATH`: optional source override for drive-thru camera (default fallback `https://www.youtube.com/watch?v=NK3S_T0Sabk`).
+- `IN_STORE_VIDEO_PATH`: optional source override for in-store camera (defaults to `sample2.MOV` in repo root).
 - `SAMPLE_FPS`: global default processed frames/sec (default `30`).
 - `DRIVE_THRU_SAMPLE_FPS` / `IN_STORE_SAMPLE_FPS`: optional per-camera FPS overrides.
 - `IOU_THRESHOLD`: global default IoU threshold (default `0.50`).

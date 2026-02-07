@@ -3,6 +3,16 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.pyc
+.env
+*.db
+*.sqlite
+*.sqlite3
+*.pt
+*.onnx
+*.engine
+*.mp4
+*.mov
+*.MOV
 web/node_modules/
 web/.next/
 web/out/

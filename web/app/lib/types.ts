@@ -76,6 +76,8 @@ export type RecommendationResponse = {
   };
   assumptions: {
     drop_cadence_min: number;
+    decision_interval_sec?: number;
+    cook_time_sec?: number;
     avg_ticket_usd: number;
     notes: string[];
   };

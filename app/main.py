@@ -76,16 +76,17 @@ def _env_list(name: str, default: list[str]) -> list[str]:
     return [item for item in items if item]
 
 
-DEFAULT_VIDEO_SOURCE = os.getenv("VIDEO_PATH", str(BASE_DIR / "sample.mp4"))
+DEFAULT_VIDEO_SOURCE = os.getenv("VIDEO_PATH", "https://www.youtube.com/watch?v=NK3S_T0Sabk")
 CAMERA_IDS = ("drive_thru", "in_store")
 DEFAULT_CAMERA_SOURCES: dict[str, str] = {
     "drive_thru": os.getenv("DRIVE_THRU_VIDEO_PATH", DEFAULT_VIDEO_SOURCE),
-    "in_store": os.getenv("IN_STORE_VIDEO_PATH", str(BASE_DIR / "sample1.mp4")),
+    "in_store": os.getenv("IN_STORE_VIDEO_PATH", str(BASE_DIR / "sample2.MOV")),
 }
 AVG_SERVICE_TIME_SEC = _env_float("AVG_SERVICE_TIME_SEC", 45.0)
 ANALYTICS_DB_PATH = os.getenv("ANALYTICS_DB_PATH", str(BASE_DIR / "analytics.db"))
 ANALYTICS_SAMPLE_INTERVAL_SEC = _env_float("ANALYTICS_SAMPLE_INTERVAL_SEC", 1.0)
 ANALYTICS_MEMORY_POINTS = _env_int("ANALYTICS_MEMORY_POINTS", 7200)
+API_CACHE_MAX_AGE_SEC = max(0.5, _env_float("API_CACHE_MAX_AGE_SEC", 5.0))
 
 
 class StreamSourcePayload(BaseModel):
@@ -336,13 +337,13 @@ def _all_stream_sources_response() -> dict[str, Any]:
     }
 
 
-def _parse_iso_timestamp(value: str | None) -> datetime:
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
     if not value:
-        return datetime.now(timezone.utc)
+        return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return datetime.now(timezone.utc)
+        return None
 
 
 def _aggregate_snapshot() -> dict[str, Any]:
@@ -378,8 +379,15 @@ def _aggregate_snapshot() -> dict[str, Any]:
         f"{camera_id}={snapshot.get('stream_source', '')}" for camera_id, snapshot in snapshots.items()
     )
 
-    timestamps = [_parse_iso_timestamp(str(snapshot.get("timestamp", ""))) for snapshot in snapshots.values()]
-    newest_timestamp = max(timestamps).isoformat().replace("+00:00", "Z")
+    timestamps = [
+        parsed
+        for parsed in (_parse_iso_timestamp(str(snapshot.get("timestamp", ""))) for snapshot in snapshots.values())
+        if parsed is not None
+    ]
+    if timestamps:
+        newest_timestamp = max(timestamps).isoformat().replace("+00:00", "Z")
+    else:
+        newest_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     fps_values = [
         float(snapshot.get("performance", {}).get("processing_fps", 0.0) or 0.0)
@@ -521,11 +529,24 @@ def _analytics_sample_provider() -> tuple[dict[str, Any], dict[str, Any]]:
     return snapshot, recommendations_payload
 
 
+def _is_payload_fresh(payload: dict[str, Any] | None, *, max_age_sec: float = API_CACHE_MAX_AGE_SEC) -> bool:
+    if payload is None:
+        return False
+    timestamp = _parse_iso_timestamp(str(payload.get("timestamp", "")))
+    if timestamp is None:
+        return False
+    age_sec = max(0.0, (datetime.now(timezone.utc) - timestamp).total_seconds())
+    return age_sec <= max_age_sec
+
+
 def _build_demo_readiness() -> dict[str, Any]:
     snapshot = _aggregate_snapshot()
     now = datetime.now(timezone.utc)
     snapshot_timestamp = _parse_iso_timestamp(str(snapshot.get("timestamp", "")))
-    data_age_sec = max(0.0, (now - snapshot_timestamp).total_seconds())
+    if snapshot_timestamp is None:
+        data_age_sec = float("inf")
+    else:
+        data_age_sec = max(0.0, (now - snapshot_timestamp).total_seconds())
     average_fps = float(snapshot.get("performance", {}).get("processing_fps", 0.0) or 0.0)
 
     cameras = snapshot.get("cameras", {})
@@ -587,7 +608,15 @@ def _build_demo_readiness() -> dict[str, Any]:
             2,
         )
 
-    if data_age_sec <= 3.0:
+    if snapshot_timestamp is None:
+        add_check(
+            "freshness",
+            "Telemetry Freshness",
+            "fail",
+            "Telemetry timestamp is unavailable.",
+            0,
+        )
+    elif data_age_sec <= 3.0:
         add_check(
             "freshness",
             "Telemetry Freshness",
@@ -750,7 +779,7 @@ def index() -> FileResponse:
 @app.get("/api/metrics")
 def metrics() -> JSONResponse:
     cached = analytics_store.get_latest_metrics()
-    if cached is not None:
+    if _is_payload_fresh(cached):
         return JSONResponse(cached)
     return JSONResponse(_aggregate_snapshot())
 
@@ -764,7 +793,7 @@ def camera_metrics(camera_id: str) -> JSONResponse:
 @app.get("/api/recommendations")
 def recommendations() -> JSONResponse:
     cached = analytics_store.get_latest_recommendation()
-    if cached is not None:
+    if _is_payload_fresh(cached):
         with reco_lock:
             profiles_by_key = {profile.key: profile for profile in recommender.item_profiles}
         return JSONResponse(_enforce_recommendation_limits(cached, profiles_by_key=profiles_by_key))
