@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator
@@ -384,7 +385,75 @@ def _aggregate_snapshot() -> dict[str, Any]:
 
 def _generate_recommendations(snapshot: dict[str, Any]) -> dict[str, Any]:
     with reco_lock:
-        return recommender.generate(snapshot)
+        response = recommender.generate(snapshot)
+        profiles_by_key = {profile.key: profile for profile in recommender.item_profiles}
+    return _enforce_recommendation_limits(response, profiles_by_key=profiles_by_key)
+
+
+def _enforce_recommendation_limits(
+    response: dict[str, Any],
+    *,
+    profiles_by_key: dict[str, ItemProfile],
+) -> dict[str, Any]:
+    normalized = deepcopy(response)
+    items = normalized.get("recommendations", [])
+    if not isinstance(items, list):
+        return normalized
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        key = str(item.get("item", "")).strip()
+        profile = profiles_by_key.get(key)
+        if profile is None:
+            continue
+
+        max_unit_size = int(profile.max_unit_size)
+        batch_size = max(1, int(profile.batch_size))
+        max_batches = max(0, max_unit_size // batch_size)
+
+        raw_recommended_batches = int(item.get("recommended_batches", 0) or 0)
+        raw_baseline_batches = int(item.get("baseline_batches", 0) or 0)
+
+        recommended_batches = min(max(0, raw_recommended_batches), max_batches)
+        baseline_batches = min(max(0, raw_baseline_batches), max_batches)
+
+        recommended_units = min(
+            int(item.get("recommended_units", 0) or 0),
+            recommended_batches * batch_size,
+            max_unit_size,
+        )
+        baseline_units = min(
+            int(item.get("baseline_units", 0) or 0),
+            baseline_batches * batch_size,
+            max_unit_size,
+        )
+
+        was_clamped = (
+            recommended_batches != raw_recommended_batches
+            or baseline_batches != raw_baseline_batches
+            or recommended_units != int(item.get("recommended_units", 0) or 0)
+            or baseline_units != int(item.get("baseline_units", 0) or 0)
+        )
+
+        item["recommended_batches"] = recommended_batches
+        item["recommended_units"] = recommended_units
+        item["baseline_batches"] = baseline_batches
+        item["baseline_units"] = baseline_units
+        item["delta_batches"] = recommended_batches - baseline_batches
+        item["max_unit_size"] = max_unit_size
+
+        if was_clamped:
+            reason = str(item.get("reason", "")).strip()
+            clamp_note = (
+                f"Capped at {max_unit_size} units ({max_batches} batch(es)) "
+                "based on configured max unit size."
+            )
+            if clamp_note not in reason:
+                item["reason"] = f"{reason} {clamp_note}".strip()
+
+    return normalized
 
 
 def _analytics_sample_provider() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -637,7 +706,9 @@ def camera_metrics(camera_id: str) -> JSONResponse:
 def recommendations() -> JSONResponse:
     cached = analytics_store.get_latest_recommendation()
     if cached is not None:
-        return JSONResponse(cached)
+        with reco_lock:
+            profiles_by_key = {profile.key: profile for profile in recommender.item_profiles}
+        return JSONResponse(_enforce_recommendation_limits(cached, profiles_by_key=profiles_by_key))
 
     snapshot = _aggregate_snapshot()
     return JSONResponse(_generate_recommendations(snapshot))

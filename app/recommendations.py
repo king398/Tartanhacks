@@ -185,9 +185,10 @@ class RecommendationEngine:
                     "item": profile.key,
                     "label": profile.label,
                     "recommended_batches": baseline_batches,
-                    "recommended_units": baseline_units,
+                    "recommended_units": min(baseline_units, profile.max_unit_size),
                     "baseline_batches": baseline_batches,
-                    "baseline_units": baseline_units,
+                    "baseline_units": min(baseline_units, profile.max_unit_size),
+                    "max_unit_size": profile.max_unit_size,
                     "delta_batches": 0,
                     "urgency": "low",
                     "reason": "Live stream is unavailable; holding baseline plan until frames are flowing.",
@@ -269,10 +270,10 @@ class RecommendationEngine:
             target_batches = math.ceil(target_units / profile.batch_size)
             recommended_batches = max(min_batches, target_batches)
             recommended_batches = min(recommended_batches, max_batches)
-            recommended_units = recommended_batches * profile.batch_size
+            recommended_units = min(recommended_batches * profile.batch_size, profile.max_unit_size)
             baseline_batches = math.ceil(profile.baseline_drop_units / profile.batch_size)
             baseline_batches = min(baseline_batches, max_batches)
-            baseline_units = baseline_batches * profile.batch_size
+            baseline_units = min(baseline_batches * profile.batch_size, profile.max_unit_size)
 
             baseline_over = max(0.0, baseline_units - required_units)
             recommended_over = max(0.0, recommended_units - required_units)
@@ -304,6 +305,7 @@ class RecommendationEngine:
                     "recommended_units": recommended_units,
                     "baseline_batches": baseline_batches,
                     "baseline_units": baseline_units,
+                    "max_unit_size": profile.max_unit_size,
                     "delta_batches": delta_batches,
                     "urgency": urgency,
                     "reason": reason,

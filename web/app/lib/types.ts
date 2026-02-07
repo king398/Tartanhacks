@@ -40,6 +40,7 @@ export type RecommendationItem = {
   recommended_units: number;
   baseline_batches: number;
   baseline_units: number;
+  max_unit_size?: number;
   delta_batches: number;
   urgency: "high" | "medium" | "low";
   reason: string;

@@ -18,7 +18,7 @@ type RecommendationLogEntry = {
 
 const urgencyBadge: Record<RecommendationItem["urgency"], string> = {
   high: "bg-red-100 text-red-700 border-red-200",
-  medium: "bg-amber-100 text-amber-700 border-amber-200",
+  medium: "bg-yellow-100 text-yellow-800 border-yellow-300",
   low: "bg-emerald-100 text-emerald-700 border-emerald-200",
 };
 
@@ -146,27 +146,33 @@ export default function RecommendationActivityPage() {
         </div>
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {(reco?.recommendations ?? []).map((item) => (
-            <article key={item.item} className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="display text-base font-semibold text-graphite">{item.label}</h2>
-                <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
-                  {item.urgency}
-                </span>
-              </div>
+          {(reco?.recommendations ?? []).map((item) => {
+            const maxUnitSize = item.max_unit_size;
+            const recommendedUnits = maxUnitSize !== undefined ? Math.min(item.recommended_units, maxUnitSize) : item.recommended_units;
+            const baselineUnits = maxUnitSize !== undefined ? Math.min(item.baseline_units, maxUnitSize) : item.baseline_units;
 
-              <p className="mt-2 text-sm text-slate-700">
-                Recommended: <span className="font-semibold">{item.recommended_batches} batch(es)</span> ({item.recommended_units} units)
-              </p>
-              <p className="text-sm text-muted">
-                Baseline: {item.baseline_batches} batch(es) ({item.baseline_units} units)
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                Delta: <span className="font-semibold">{item.delta_batches > 0 ? `+${item.delta_batches}` : item.delta_batches} batch(es)</span>
-              </p>
-              <p className="mt-2 text-xs text-muted">{item.reason}</p>
-            </article>
-          ))}
+            return (
+              <article key={item.item} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="display text-base font-semibold text-graphite">{item.label}</h2>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
+                    {item.urgency}
+                  </span>
+                </div>
+
+                <p className="mt-2 text-sm text-slate-700">
+                  Recommended: <span className="font-semibold">{item.recommended_batches} batch(es)</span> ({recommendedUnits} units)
+                </p>
+                <p className="text-sm text-muted">
+                  Baseline: {item.baseline_batches} batch(es) ({baselineUnits} units)
+                </p>
+                <p className="mt-1 text-sm text-slate-700">
+                  Delta: <span className="font-semibold">{item.delta_batches > 0 ? `+${item.delta_batches}` : item.delta_batches} batch(es)</span>
+                </p>
+                <p className="mt-2 text-xs text-muted">{item.reason}</p>
+              </article>
+            );
+          })}
 
           {reco?.recommendations.length ? null : (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">Waiting for recommendations...</div>
