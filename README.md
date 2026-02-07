@@ -63,7 +63,7 @@ Pipeline implemented:
 ## Config (Environment Variables)
 
 - `VIDEO_PATH`: input mp4 path
-- `YOLO_MODEL`: default `yolo26s.pt`
+- `YOLO_MODEL`: default `yolo26m.pt`
 - `YOLO_DEVICE`: `auto` (uses CUDA if available), or set `0`, `cuda:0`, or `cpu`
 - `SAMPLE_FPS`: processed frames/sec (default `30`)
 - `CONF_THRESHOLD`, `IOU_THRESHOLD`, `IMG_SIZE`

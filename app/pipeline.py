@@ -50,7 +50,7 @@ class VideoProcessor:
     def __init__(
         self,
         video_path: str | Path,
-        model_name: str = "yolo26s.pt",
+        model_name: str = "yolo26m.pt",
         sample_fps: float = 30.0,
         conf: float = 0.35,
         iou: float = 0.5,
