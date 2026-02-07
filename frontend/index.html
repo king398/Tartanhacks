@@ -166,6 +166,10 @@
         <div class="label">Inference Device</div>
         <div class="value" id="inference_device">-</div>
       </article>
+      <article class="metric">
+        <div class="label">Processing FPS</div>
+        <div class="value" id="processing_fps">0.0</div>
+      </article>
     </section>
   </main>
 
@@ -179,6 +183,7 @@
       waitTime: document.getElementById("wait_time"),
       serviceTime: document.getElementById("service_time"),
       inferenceDevice: document.getElementById("inference_device"),
+      processingFps: document.getElementById("processing_fps"),
     };
 
     async function refreshMetrics() {
@@ -196,6 +201,7 @@
         ids.waitTime.textContent = data.aggregates.estimated_wait_time_min.toFixed(1);
         ids.serviceTime.textContent = data.aggregates.avg_service_time_sec.toFixed(1);
         ids.inferenceDevice.textContent = data.inference_device || "unknown";
+        ids.processingFps.textContent = Number(data.performance?.processing_fps ?? 0).toFixed(1);
       } catch (error) {
         ids.timestamp.textContent = "Metrics unavailable";
       }

@@ -23,6 +23,7 @@ class QueueSnapshot:
     estimated_wait_time_min: float
     frame_number: int
     inference_device: str
+    processing_fps: float
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +40,9 @@ class QueueSnapshot:
             },
             "frame_number": self.frame_number,
             "inference_device": self.inference_device,
+            "performance": {
+                "processing_fps": self.processing_fps,
+            },
         }
 
 
@@ -46,8 +50,8 @@ class VideoProcessor:
     def __init__(
         self,
         video_path: str | Path,
-        model_name: str = "yolo11n.pt",
-        sample_fps: float = 4.0,
+        model_name: str = "yolo26s.pt",
+        sample_fps: float = 30.0,
         conf: float = 0.35,
         iou: float = 0.5,
         imgsz: int = 640,
@@ -104,6 +108,8 @@ class VideoProcessor:
 
     def _run(self) -> None:
         frame_number = 0
+        smoothed_fps = 0.0
+        last_frame_tick: float | None = None
         while not self._stop_event.is_set():
             cap = cv2.VideoCapture(self.video_path)
             if not cap.isOpened():
@@ -122,20 +128,31 @@ class VideoProcessor:
                 if frame is None:
                     break
 
-                start_time = time.time()
-                annotated, snapshot = self._infer(frame, frame_number)
+                now = time.perf_counter()
+                if last_frame_tick is not None:
+                    delta = now - last_frame_tick
+                    if delta > 0:
+                        instant_fps = 1.0 / delta
+                        if smoothed_fps <= 0:
+                            smoothed_fps = instant_fps
+                        else:
+                            smoothed_fps = (0.85 * smoothed_fps) + (0.15 * instant_fps)
+                last_frame_tick = now
+
+                start_time = time.perf_counter()
+                annotated, snapshot = self._infer(frame, frame_number, smoothed_fps)
 
                 with self._lock:
                     self._latest_frame = annotated
                     self._latest_snapshot = snapshot
 
                 frame_number += frame_stride
-                elapsed = time.time() - start_time
+                elapsed = time.perf_counter() - start_time
                 self._stop_event.wait(max(0.0, target_delta - elapsed))
 
             cap.release()
 
-    def _infer(self, frame: np.ndarray, frame_number: int) -> tuple[np.ndarray, QueueSnapshot]:
+    def _infer(self, frame: np.ndarray, frame_number: int, processing_fps: float) -> tuple[np.ndarray, QueueSnapshot]:
         draw = frame.copy()
         frame_h, frame_w = draw.shape[:2]
         drive_roi = self._to_absolute_roi(self.drive_thru_roi, frame_w, frame_h)
@@ -196,6 +213,7 @@ class VideoProcessor:
             person_count=person_count,
             total_customers=total_customers,
             estimated_wait=estimated_wait,
+            processing_fps=processing_fps,
         )
 
         snapshot = QueueSnapshot(
@@ -208,6 +226,7 @@ class VideoProcessor:
             estimated_wait_time_min=estimated_wait,
             frame_number=frame_number,
             inference_device=str(self.device),
+            processing_fps=round(processing_fps, 1),
         )
         return draw, snapshot
 
@@ -239,6 +258,7 @@ class VideoProcessor:
         person_count: int,
         total_customers: float,
         estimated_wait: float,
+        processing_fps: float,
     ) -> None:
         lines = [
             f"Drive-thru cars: {car_count}",
@@ -246,6 +266,7 @@ class VideoProcessor:
             f"In-store people: {person_count}",
             f"Total customers: {total_customers}",
             f"Estimated wait (min): {estimated_wait}",
+            f"Processing FPS: {processing_fps:.1f}",
         ]
         box_width = 380
         box_height = 30 + (len(lines) * 28)
@@ -274,6 +295,7 @@ class VideoProcessor:
             estimated_wait_time_min=0.0,
             frame_number=0,
             inference_device=str(self.device),
+            processing_fps=0.0,
         )
 
     @staticmethod

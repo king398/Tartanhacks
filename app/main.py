@@ -50,8 +50,8 @@ def _parse_roi(value: str | None) -> tuple[float, float, float, float] | None:
 
 processor = VideoProcessor(
     video_path=os.getenv("VIDEO_PATH", str(BASE_DIR / "sample.mp4")),
-    model_name=os.getenv("YOLO_MODEL", "yolo11n.pt"),
-    sample_fps=_env_float("SAMPLE_FPS", 4.0),
+    model_name=os.getenv("YOLO_MODEL", "yolo26s.pt"),
+    sample_fps=_env_float("SAMPLE_FPS", 30.0),
     conf=_env_float("CONF_THRESHOLD", 0.35),
     iou=_env_float("IOU_THRESHOLD", 0.5),
     imgsz=_env_int("IMG_SIZE", 640),

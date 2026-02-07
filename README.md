@@ -31,7 +31,11 @@ Pipeline implemented:
     "avg_service_time_sec": 45.0,
     "estimated_wait_time_min": 7.9
   },
-  "frame_number": 120
+  "frame_number": 120,
+  "inference_device": "0",
+  "performance": {
+    "processing_fps": 18.4
+  }
 }
 ```
 
@@ -59,9 +63,9 @@ Pipeline implemented:
 ## Config (Environment Variables)
 
 - `VIDEO_PATH`: input mp4 path
-- `YOLO_MODEL`: default `yolo11n.pt`
+- `YOLO_MODEL`: default `yolo26s.pt`
 - `YOLO_DEVICE`: `auto` (uses CUDA if available), or set `0`, `cuda:0`, or `cpu`
-- `SAMPLE_FPS`: processed frames/sec (default `4`)
+- `SAMPLE_FPS`: processed frames/sec (default `30`)
 - `CONF_THRESHOLD`, `IOU_THRESHOLD`, `IMG_SIZE`
 - `PEOPLE_PER_CAR`: heuristic multiplier for drive-thru
 - `AVG_SERVICE_TIME_SEC`: average order completion time
