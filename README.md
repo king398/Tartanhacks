@@ -1,4 +1,4 @@
-# Fast Food Queue Intelligence Demo
+# FriedVision
 
 This project is a real-time AI decision-support system for fast-food operations.
 
@@ -135,6 +135,8 @@ Recommendations and impact values update from this profile, including per-item u
 - `RECO_DROP_CADENCE_MIN`: recommendation cadence assumption.
 - `RECO_DECISION_INTERVAL_SEC`: decision refresh interval (default `30` seconds).
 - `RECO_COOK_TIME_SEC`: assumed fryer-to-ready cook time for inventory tracking (default `RECO_DROP_CADENCE_MIN * 60`).
+- `RECO_URGENCY_MEDIUM_SHORTFALL_RATIO`: medium urgency threshold for projected inventory shortfall ratio (default `0.15`).
+- `RECO_URGENCY_HIGH_SHORTFALL_RATIO`: high urgency threshold for projected inventory shortfall ratio (default `0.35`).
 - `AVG_TICKET_USD`: used for directional revenue impact estimate.
 - `ANALYTICS_DB_PATH`: SQLite path for persisted analytics history (default `analytics.db` in repo root).
 - `ANALYTICS_SAMPLE_INTERVAL_SEC`: background analytics sample cadence (default `1.0` sec).

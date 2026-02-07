@@ -29,7 +29,7 @@ export default function TopNav() {
   return (
     <header className="sticky top-0 z-30 px-3 pt-2 md:px-4 md:pt-3">
       <div className="mx-auto flex w-[min(1280px,calc(100%-24px))] items-center justify-between rounded-2xl border border-sky-200 bg-white/95 px-3 py-1.5 shadow-sm backdrop-blur md:w-[min(1280px,calc(100%-36px))] md:px-4">
-        <div className="display text-sm font-semibold tracking-tight text-graphite md:text-base">Queue Command Center</div>
+        <div className="display text-sm font-semibold tracking-tight text-graphite md:text-base">FriedVision</div>
         <nav className="flex flex-wrap gap-1.5">
           {navItems.map((item) => {
             const active = isActive(pathname, item.href);

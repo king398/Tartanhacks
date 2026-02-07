@@ -44,8 +44,12 @@ export type RecommendationItem = {
   ready_inventory_units?: number;
   fryer_inventory_units?: number;
   forecast_window_demand_units?: number;
+  projected_inventory_gap_units?: number;
+  projected_inventory_gap_ratio?: number;
   decision_locked?: boolean;
   next_decision_in_sec?: number;
+  feedback_multiplier?: number;
+  feedback_events?: number;
   urgency: "high" | "medium" | "low";
   reason: string;
 };
@@ -79,6 +83,10 @@ export type RecommendationResponse = {
     decision_interval_sec?: number;
     cook_time_sec?: number;
     avg_ticket_usd: number;
+    urgency_thresholds?: {
+      medium_shortfall_ratio?: number;
+      high_shortfall_ratio?: number;
+    };
     notes: string[];
   };
 };
@@ -160,4 +168,87 @@ export type AnalyticsHistoryResponse = {
   bucket_sec: number;
   count: number;
   points: AnalyticsHistoryPoint[];
+};
+
+export type RecommendationFeedbackAction = "accept" | "override" | "ignore";
+
+export type RecommendationFeedbackEvent = {
+  id: number;
+  timestamp: string;
+  item_key: string;
+  item_label: string;
+  action: RecommendationFeedbackAction;
+  note: string | null;
+  recommended_units: number;
+  chosen_units: number;
+  baseline_units: number;
+  max_unit_size: number;
+  unit_cost_usd: number;
+  units_per_order: number;
+  forecast_horizon_min: number;
+  projected_customers: number;
+  queue_state: string;
+  avg_ticket_usd: number;
+  expected_cost_saved_usd: number;
+  expected_waste_avoided_units: number;
+  outcome_status: "pending" | "evaluated" | "insufficient_data" | string;
+  evaluated_at: string | null;
+  actual_customers: number | null;
+  forecast_error_customers: number | null;
+  realized_waste_delta_units: number | null;
+  realized_cost_delta_usd: number | null;
+  realized_revenue_delta_usd: number | null;
+};
+
+export type RecommendationFeedbackSubmissionResponse = {
+  timestamp: string;
+  feedback: RecommendationFeedbackEvent;
+  adaptation: {
+    item: string;
+    action: RecommendationFeedbackAction | string;
+    multiplier_before: number;
+    multiplier_after: number;
+    feedback_events: number;
+  };
+};
+
+export type RecommendationFeedbackSummary = {
+  timestamp: string;
+  window_minutes: number;
+  count: number;
+  adoption: {
+    accepted: number;
+    overridden: number;
+    ignored: number;
+    adopted: number;
+    adoption_rate: number;
+  };
+  outcomes: {
+    evaluated: number;
+    pending: number;
+    insufficient_data: number;
+    expected_cost_saved_usd: number;
+    realized_cost_delta_usd: number;
+    expected_waste_avoided_units: number;
+    realized_waste_delta_units: number;
+    realized_revenue_delta_usd: number;
+    realized_vs_expected_ratio: number;
+  };
+  prediction_impact: {
+    forecast_mae_customers: number;
+    forecast_bias_customers: number;
+    direction: string;
+  };
+  events: RecommendationFeedbackEvent[];
+  model_adaptation?: {
+    timestamp: string;
+    total_feedback_events: number;
+    avg_multiplier: number;
+    items: Array<{
+      item: string;
+      label: string;
+      multiplier: number;
+      feedback_events: number;
+    }>;
+  };
 };

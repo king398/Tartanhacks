@@ -209,7 +209,7 @@ export default function Home() {
       <section className="panel animate-floatIn rounded-3xl p-4 md:p-5">
         <div className="mb-3 flex flex-col gap-2 md:mb-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1.5">
-            <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">Queue Command Center</h1>
+            <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">FriedVision</h1>
             <p className="text-sm text-muted md:text-base">
               Real-time computer vision intelligence with dynamic production recommendations.
             </p>

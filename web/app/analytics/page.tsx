@@ -25,6 +25,8 @@ const CHART_MARGIN_LEFT = 56;
 const CHART_MARGIN_RIGHT = 16;
 const CHART_MARGIN_TOP = 18;
 const CHART_MARGIN_BOTTOM = 52;
+const CUSTOMER_SMOOTHING_ALPHA = 0.24;
+const WAIT_SMOOTHING_ALPHA = 0.2;
 
 const analyticsPageCache: {
   metrics: Metrics | null;
@@ -174,6 +176,23 @@ function sparklineEndpoint(values: number[], { yMin, yMax }: { yMin: number; yMa
       : CHART_MARGIN_LEFT + (index / (values.length - 1)) * plotWidth;
   const y = CHART_MARGIN_TOP + (1 - (values[index] - yMin) / range) * plotHeight;
   return { x, y };
+}
+
+function smoothSeriesEma(values: number[], alpha: number): number[] {
+  if (values.length <= 2) {
+    return values;
+  }
+
+  const safeAlpha = Math.max(0.01, Math.min(0.99, alpha));
+  const smoothed: number[] = [values[0]];
+
+  for (let index = 1; index < values.length; index += 1) {
+    const previous = smoothed[index - 1];
+    const nextValue = safeAlpha * values[index] + (1 - safeAlpha) * previous;
+    smoothed.push(nextValue);
+  }
+
+  return smoothed;
 }
 
 export default function AnalyticsPage() {
@@ -362,39 +381,47 @@ export default function AnalyticsPage() {
   const customerTimestamps = useMemo(() => usableHistory.map((point) => point.timestamp), [usableHistory]);
   const waitValues = useMemo(() => usableHistory.map((point) => point.waitMinutes), [usableHistory]);
   const waitTimestamps = useMemo(() => usableHistory.map((point) => point.timestamp), [usableHistory]);
+  const smoothedCustomerValues = useMemo(
+    () => smoothSeriesEma(customerValues, CUSTOMER_SMOOTHING_ALPHA),
+    [customerValues],
+  );
+  const smoothedWaitValues = useMemo(
+    () => smoothSeriesEma(waitValues, WAIT_SMOOTHING_ALPHA),
+    [waitValues],
+  );
 
   const customerScale = useMemo(
     () =>
-      _buildChartScale(customerValues, customerTimestamps, (value) => {
+      _buildChartScale([...customerValues, ...smoothedCustomerValues], customerTimestamps, (value) => {
         if (value >= 10) {
           return value.toFixed(0);
         }
         return value.toFixed(1);
       }),
-    [customerValues, customerTimestamps],
+    [customerTimestamps, customerValues, smoothedCustomerValues],
   );
 
   const waitScale = useMemo(
-    () => _buildChartScale(waitValues, waitTimestamps, (value) => value.toFixed(1)),
-    [waitValues, waitTimestamps],
+    () => _buildChartScale([...waitValues, ...smoothedWaitValues], waitTimestamps, (value) => value.toFixed(1)),
+    [smoothedWaitValues, waitTimestamps, waitValues],
   );
 
   const customersSparkline = useMemo(
-    () => sparklinePath(customerValues, { yMin: customerScale.yMin, yMax: customerScale.yMax }),
-    [customerScale.yMax, customerScale.yMin, customerValues],
+    () => sparklinePath(smoothedCustomerValues, { yMin: customerScale.yMin, yMax: customerScale.yMax }),
+    [customerScale.yMax, customerScale.yMin, smoothedCustomerValues],
   );
   const customerEndpoint = useMemo(
-    () => sparklineEndpoint(customerValues, { yMin: customerScale.yMin, yMax: customerScale.yMax }),
-    [customerScale.yMax, customerScale.yMin, customerValues],
+    () => sparklineEndpoint(smoothedCustomerValues, { yMin: customerScale.yMin, yMax: customerScale.yMax }),
+    [customerScale.yMax, customerScale.yMin, smoothedCustomerValues],
   );
 
   const waitSparkline = useMemo(
-    () => sparklinePath(waitValues, { yMin: waitScale.yMin, yMax: waitScale.yMax }),
-    [waitScale.yMax, waitScale.yMin, waitValues],
+    () => sparklinePath(smoothedWaitValues, { yMin: waitScale.yMin, yMax: waitScale.yMax }),
+    [smoothedWaitValues, waitScale.yMax, waitScale.yMin],
   );
   const waitEndpoint = useMemo(
-    () => sparklineEndpoint(waitValues, { yMin: waitScale.yMin, yMax: waitScale.yMax }),
-    [waitScale.yMax, waitScale.yMin, waitValues],
+    () => sparklineEndpoint(smoothedWaitValues, { yMin: waitScale.yMin, yMax: waitScale.yMax }),
+    [smoothedWaitValues, waitScale.yMax, waitScale.yMin],
   );
 
   return (
@@ -441,7 +468,7 @@ export default function AnalyticsPage() {
       <section className="grid gap-3 lg:grid-cols-2">
         <article className="panel rounded-3xl p-4 md:p-5">
           <h2 className="display text-xl font-semibold text-graphite">Customer Load Timeline</h2>
-          <p className="mt-1 text-sm text-muted">Recent total customer estimates from computer-vision tracking.</p>
+          <p className="mt-1 text-sm text-muted">Recent total customer estimates from computer-vision tracking (EMA smoothed).</p>
           <div className="mt-3 rounded-2xl border accent-card p-3">
             <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-44 w-full" role="img" aria-label="Total customers trend with labeled axes">
               {customerScale.yTicks.map((tick, index) => (
@@ -495,7 +522,7 @@ export default function AnalyticsPage() {
 
         <article className="panel rounded-3xl p-4 md:p-5">
           <h2 className="display text-xl font-semibold text-graphite">Estimated Wait Timeline</h2>
-          <p className="mt-1 text-sm text-muted">How queue dynamics are translating into service delay risk.</p>
+          <p className="mt-1 text-sm text-muted">How queue dynamics are translating into service delay risk (EMA smoothed).</p>
           <div className="mt-3 rounded-2xl border accent-card p-3">
             <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-44 w-full" role="img" aria-label="Estimated wait trend with labeled axes">
               {waitScale.yTicks.map((tick, index) => (

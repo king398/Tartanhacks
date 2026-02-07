@@ -16,7 +16,7 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "Queue Command Center",
+  title: "FriedVision",
   description: "Real-time fast-food queue analytics and production recommendations.",
 };
 

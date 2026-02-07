@@ -4,6 +4,9 @@ import type {
   CameraId,
   DemoReadiness,
   Metrics,
+  RecommendationFeedbackAction,
+  RecommendationFeedbackSubmissionResponse,
+  RecommendationFeedbackSummary,
   RecommendationResponse,
   StreamSourceResponse,
   StreamSourcesResponse,
@@ -189,4 +192,52 @@ export async function fetchAnalyticsHistory(params?: {
     throw new Error("Could not load analytics history.");
   }
   return (await response.json()) as AnalyticsHistoryResponse;
+}
+
+export async function submitRecommendationFeedback(payload: {
+  item: string;
+  action: RecommendationFeedbackAction;
+  override_units?: number;
+  note?: string;
+}): Promise<RecommendationFeedbackSubmissionResponse> {
+  const response = await fetch(`${API_BASE}/api/recommendation-feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "Unable to submit recommendation feedback.";
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // Keep default detail.
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as RecommendationFeedbackSubmissionResponse;
+}
+
+export async function fetchRecommendationFeedbackSummary(params?: {
+  minutes?: number;
+  limit?: number;
+}): Promise<RecommendationFeedbackSummary> {
+  const searchParams = new URLSearchParams();
+  if (params?.minutes !== undefined) {
+    searchParams.set("minutes", String(params.minutes));
+  }
+  if (params?.limit !== undefined) {
+    searchParams.set("limit", String(params.limit));
+  }
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const response = await fetch(`${API_BASE}/api/recommendation-feedback/summary${suffix}`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Could not load recommendation feedback summary.");
+  }
+  return (await response.json()) as RecommendationFeedbackSummary;
 }

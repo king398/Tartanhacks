@@ -40,10 +40,18 @@ class RecommendationEngine:
         self.decision_interval_sec = max(5.0, self._env_float("RECO_DECISION_INTERVAL_SEC", 30.0))
         self.cook_time_sec = max(30.0, self._env_float("RECO_COOK_TIME_SEC", self.drop_cadence_min * 60.0))
         self.avg_ticket_usd = self._env_float("AVG_TICKET_USD", 10.5)
-        self.medium_urgency_customers = self._env_float("RECO_URGENCY_MEDIUM_CUSTOMERS", 8.0)
-        self.high_urgency_customers = self._env_float("RECO_URGENCY_HIGH_CUSTOMERS", 16.0)
-        if self.high_urgency_customers < self.medium_urgency_customers:
-            self.high_urgency_customers = self.medium_urgency_customers
+        self.medium_urgency_shortfall_ratio = self._clamp(
+            self._env_float("RECO_URGENCY_MEDIUM_SHORTFALL_RATIO", 0.15),
+            0.0,
+            1.0,
+        )
+        self.high_urgency_shortfall_ratio = self._clamp(
+            self._env_float("RECO_URGENCY_HIGH_SHORTFALL_RATIO", 0.35),
+            0.0,
+            1.0,
+        )
+        if self.high_urgency_shortfall_ratio < self.medium_urgency_shortfall_ratio:
+            self.high_urgency_shortfall_ratio = self.medium_urgency_shortfall_ratio
 
         self.business_name = "Steel City Chicken"
         self.business_type = "Fast Food"
@@ -96,7 +104,10 @@ class RecommendationEngine:
         self._last_inventory_timestamp: datetime | None = None
         self._last_decision_timestamp: datetime | None = None
         self._last_decision_by_item: dict[str, int] = {}
+        self._feedback_multiplier_by_item: dict[str, float] = {}
+        self._feedback_events_by_item: dict[str, int] = {}
         self._reset_inventory_state()
+        self._reset_feedback_state()
 
     @staticmethod
     def _env_float(name: str, default: float) -> float:
@@ -152,6 +163,13 @@ class RecommendationEngine:
         self._last_inventory_timestamp = None
         self._last_decision_timestamp = None
 
+    def _reset_feedback_state(self) -> None:
+        self._feedback_multiplier_by_item = {}
+        self._feedback_events_by_item = {}
+        for profile in self.item_profiles:
+            self._feedback_multiplier_by_item[profile.key] = 1.0
+            self._feedback_events_by_item[profile.key] = 0
+
     def _ensure_inventory_state(self) -> None:
         active_profiles = {profile.key: profile for profile in self.item_profiles}
         stale_keys = [key for key in self._inventory if key not in active_profiles]
@@ -167,6 +185,17 @@ class RecommendationEngine:
                     fryer_lots=deque(),
                 )
             self._last_decision_by_item.setdefault(key, 0)
+
+    def _ensure_feedback_state(self) -> None:
+        active_profiles = {profile.key: profile for profile in self.item_profiles}
+        stale_keys = [key for key in self._feedback_multiplier_by_item if key not in active_profiles]
+        for key in stale_keys:
+            self._feedback_multiplier_by_item.pop(key, None)
+            self._feedback_events_by_item.pop(key, None)
+
+        for key in active_profiles:
+            self._feedback_multiplier_by_item.setdefault(key, 1.0)
+            self._feedback_events_by_item.setdefault(key, 0)
 
     def _demand_rate_units_per_min(self, customer_load: float, profile: ItemProfile) -> float:
         cadence_min = max(0.5, float(self.drop_cadence_min))
@@ -245,7 +274,76 @@ class RecommendationEngine:
         self.avg_ticket_usd = max(0.01, float(avg_ticket_usd))
         self.item_profiles = tuple(item_profiles)
         self._reset_inventory_state()
+        self._reset_feedback_state()
         return self.get_business_profile()
+
+    def apply_operator_feedback(
+        self,
+        *,
+        item_key: str,
+        action: str,
+        recommended_units: int,
+        chosen_units: int,
+    ) -> dict[str, Any]:
+        self._ensure_feedback_state()
+        if item_key not in self._feedback_multiplier_by_item:
+            raise ValueError(f"Unknown recommendation item '{item_key}'.")
+
+        prior_multiplier = float(self._feedback_multiplier_by_item.get(item_key, 1.0))
+        bounded_recommended = max(0, int(recommended_units))
+        bounded_chosen = max(0, int(chosen_units))
+        normalized_action = action.strip().lower()
+
+        if normalized_action == "accept":
+            signal = 1.0
+        else:
+            reference_units = max(1.0, float(bounded_recommended))
+            signal = self._clamp(float(bounded_chosen) / reference_units, 0.65, 1.35)
+
+        smoothing = 0.18
+        updated_multiplier = self._clamp(
+            (1.0 - smoothing) * prior_multiplier + (smoothing * signal),
+            0.75,
+            1.25,
+        )
+
+        self._feedback_multiplier_by_item[item_key] = updated_multiplier
+        self._feedback_events_by_item[item_key] = int(self._feedback_events_by_item.get(item_key, 0)) + 1
+
+        return {
+            "item": item_key,
+            "action": normalized_action,
+            "multiplier_before": round(prior_multiplier, 3),
+            "multiplier_after": round(updated_multiplier, 3),
+            "feedback_events": int(self._feedback_events_by_item[item_key]),
+        }
+
+    def get_feedback_adaptation_summary(self) -> dict[str, Any]:
+        self._ensure_feedback_state()
+        entries = []
+        for profile in self.item_profiles:
+            key = profile.key
+            entries.append(
+                {
+                    "item": key,
+                    "label": profile.label,
+                    "multiplier": round(float(self._feedback_multiplier_by_item.get(key, 1.0)), 3),
+                    "feedback_events": int(self._feedback_events_by_item.get(key, 0)),
+                }
+            )
+
+        total_events = sum(int(entry["feedback_events"]) for entry in entries)
+        avg_multiplier = (
+            sum(float(entry["multiplier"]) for entry in entries) / max(1, len(entries))
+            if entries
+            else 1.0
+        )
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "total_feedback_events": int(total_events),
+            "avg_multiplier": round(float(avg_multiplier), 3),
+            "items": entries,
+        }
 
     def get_business_profile(self) -> dict[str, Any]:
         return {
@@ -288,12 +386,24 @@ class RecommendationEngine:
             return "falling"
         return "steady"
 
-    def _urgency_from_customer_count(self, total_customers: float) -> str:
-        if total_customers >= self.high_urgency_customers:
-            return "high"
-        if total_customers >= self.medium_urgency_customers:
-            return "medium"
-        return "low"
+    def _urgency_from_inventory_gap(
+        self,
+        *,
+        projected_demand_units: float,
+        available_inventory_units: float,
+    ) -> tuple[str, float, float]:
+        safe_projected_demand = max(0.0, float(projected_demand_units))
+        safe_available_inventory = max(0.0, float(available_inventory_units))
+        shortfall_units = max(0.0, safe_projected_demand - safe_available_inventory)
+        if safe_projected_demand <= 0.0:
+            return "low", shortfall_units, 0.0
+
+        shortfall_ratio = self._clamp(shortfall_units / safe_projected_demand, 0.0, 1.0)
+        if shortfall_ratio >= self.high_urgency_shortfall_ratio:
+            return "high", shortfall_units, shortfall_ratio
+        if shortfall_ratio >= self.medium_urgency_shortfall_ratio:
+            return "medium", shortfall_units, shortfall_ratio
+        return "low", shortfall_units, shortfall_ratio
 
     def _confidence(self, processing_fps: float) -> float:
         history_factor = self._clamp(len(self._history) / 18.0, 0.0, 1.0)
@@ -307,24 +417,46 @@ class RecommendationEngine:
         current_wait: float,
         stream_error: str | None,
     ) -> dict[str, Any]:
-        fallback_urgency = self._urgency_from_customer_count(current_customers)
         recommendations = []
         effective_customers = max(0.0, current_customers)
+        self._ensure_feedback_state()
+        self._ensure_inventory_state()
         for profile in self.item_profiles:
+            state = self._inventory[profile.key]
             max_units = int(profile.max_unit_size)
             baseline_units = min(int(profile.baseline_drop_units), int(profile.max_unit_size))
+            ready_inventory_units = max(0, self._round_to_nearest_unit(state.ready_units))
+            fryer_inventory_units = max(0, self._fryer_units(state))
+            available_inventory_units = float(max(0, ready_inventory_units + fryer_inventory_units))
+
             raw_target_units = max(0.0, effective_customers * profile.units_per_order)
-            rounded_target_units = self._round_to_nearest_unit(raw_target_units)
+            feedback_multiplier = float(self._feedback_multiplier_by_item.get(profile.key, 1.0))
+            adjusted_target_units = raw_target_units * feedback_multiplier
+            rounded_target_units = self._round_to_nearest_unit(adjusted_target_units)
             recommended_units = min(rounded_target_units, max_units)
+            feedback_events = int(self._feedback_events_by_item.get(profile.key, 0))
+            urgency_supply_units = available_inventory_units + float(max(0, recommended_units))
+            urgency_by_gap, projected_shortfall_units, projected_shortfall_ratio = self._urgency_from_inventory_gap(
+                projected_demand_units=raw_target_units,
+                available_inventory_units=urgency_supply_units,
+            )
 
             reason = (
                 "Live stream is unavailable; using the latest total customer estimate (drive-thru + in-store). "
                 f"{effective_customers:.1f} customers x {profile.units_per_order:.2f} "
-                f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f}. "
+                f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f} projected demand. "
+                f"Effective supply {urgency_supply_units:.1f} "
+                f"(ready + fryer {available_inventory_units:.1f}, planned drop {recommended_units}). "
+                f"projected shortfall {projected_shortfall_units:.1f} ({projected_shortfall_ratio * 100:.0f}%). "
                 f"Rounded to nearest whole unit => "
                 f"{self._qty(rounded_target_units, unit_label=profile.unit_label)}; "
                 f"drop {self._qty(recommended_units, unit_label=profile.unit_label)} now."
             )
+            if feedback_events > 0:
+                reason = (
+                    f"{reason} Feedback multiplier {feedback_multiplier:.2f}x "
+                    f"({feedback_events} operator actions) applied."
+                )
 
             if rounded_target_units > max_units:
                 reason = (
@@ -341,7 +473,14 @@ class RecommendationEngine:
                     "max_unit_size": profile.max_unit_size,
                     "unit_label": self._unit_label(profile.unit_label),
                     "delta_units": recommended_units - baseline_units,
-                    "urgency": fallback_urgency,
+                    "forecast_window_demand_units": round(raw_target_units, 1),
+                    "ready_inventory_units": ready_inventory_units,
+                    "fryer_inventory_units": fryer_inventory_units,
+                    "projected_inventory_gap_units": round(projected_shortfall_units, 1),
+                    "projected_inventory_gap_ratio": round(projected_shortfall_ratio, 3),
+                    "feedback_multiplier": round(feedback_multiplier, 3),
+                    "feedback_events": feedback_events,
+                    "urgency": urgency_by_gap,
                     "reason": reason,
                 }
             )
@@ -380,6 +519,10 @@ class RecommendationEngine:
                 "decision_interval_sec": int(round(self.decision_interval_sec)),
                 "cook_time_sec": int(round(self.cook_time_sec)),
                 "avg_ticket_usd": round(self.avg_ticket_usd, 2),
+                "urgency_thresholds": {
+                    "medium_shortfall_ratio": round(self.medium_urgency_shortfall_ratio, 3),
+                    "high_shortfall_ratio": round(self.high_urgency_shortfall_ratio, 3),
+                },
                 "notes": notes,
             },
         }
@@ -406,14 +549,13 @@ class RecommendationEngine:
             )
 
         self._history.append((timestamp, current_customers))
+        self._ensure_feedback_state()
 
         trend_per_min = self._trend_per_min()
         queue_state = self._state_from_trend(trend_per_min)
         stabilized_customers = self._stabilized_customer_count(current_customers)
         projected_customers = max(0.0, stabilized_customers + (trend_per_min * max(0.0, self.forecast_horizon_min)))
         effective_customers = projected_customers
-
-        urgency_by_customer_load = self._urgency_from_customer_count(max(current_customers, projected_customers))
 
         self._advance_inventory(timestamp=timestamp, customer_load=current_customers)
         decision_due, next_decision_in_sec = self._decision_due(timestamp)
@@ -426,10 +568,16 @@ class RecommendationEngine:
             state = self._inventory[profile.key]
             max_units = int(profile.max_unit_size)
             baseline_units = min(int(profile.baseline_drop_units), max_units)
+            ready_inventory_units = max(0, self._round_to_nearest_unit(state.ready_units))
+            fryer_inventory_units = max(0, self._fryer_units(state))
+            available_inventory_units = float(max(0, ready_inventory_units + fryer_inventory_units))
 
             raw_target_units = max(0.0, effective_customers * profile.units_per_order)
-            rounded_target_units = self._round_to_nearest_unit(raw_target_units)
+            feedback_multiplier = float(self._feedback_multiplier_by_item.get(profile.key, 1.0))
+            adjusted_target_units = raw_target_units * feedback_multiplier
+            rounded_target_units = self._round_to_nearest_unit(adjusted_target_units)
             target_units = min(rounded_target_units, max_units)
+            feedback_events = int(self._feedback_events_by_item.get(profile.key, 0))
 
             if decision_due:
                 recommended_units = target_units
@@ -445,23 +593,38 @@ class RecommendationEngine:
                 held_units = int(self._last_decision_by_item.get(profile.key, target_units))
                 recommended_units = min(max(0, held_units), max_units)
 
-            ready_inventory_units = max(0, self._round_to_nearest_unit(state.ready_units))
-            fryer_inventory_units = max(0, self._fryer_units(state))
-
+            urgency_supply_units = available_inventory_units + (float(max(0, recommended_units)) if decision_due else 0.0)
+            urgency_by_gap, projected_shortfall_units, projected_shortfall_ratio = self._urgency_from_inventory_gap(
+                projected_demand_units=raw_target_units,
+                available_inventory_units=urgency_supply_units,
+            )
             saved_units = max(0.0, float(baseline_units - recommended_units))
             waste_avoided_units += saved_units
             cost_saved_usd += saved_units * profile.unit_cost_usd
 
             delta_units = recommended_units - baseline_units
+            supply_context = (
+                f"Effective supply {urgency_supply_units:.1f} "
+                f"(ready + fryer {available_inventory_units:.1f}, planned drop {recommended_units})."
+                if decision_due
+                else f"Effective supply {urgency_supply_units:.1f} (ready + fryer inventory)."
+            )
 
             reason = (
                 f"Projected {effective_customers:.1f} customers in {self.forecast_horizon_min:.1f} min "
                 f"(current {current_customers:.1f}, trend {trend_per_min:.2f}/min) x {profile.units_per_order:.2f} "
-                f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f}. "
+                f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f} projected demand. "
+                f"{supply_context} "
+                f"projected shortfall {projected_shortfall_units:.1f} ({projected_shortfall_ratio * 100:.0f}%). "
                 f"Rounded to nearest whole unit => "
                 f"{self._qty(target_units, unit_label=profile.unit_label)}; "
                 f"drop {self._qty(recommended_units, unit_label=profile.unit_label)} now."
             )
+            if feedback_events > 0:
+                reason = (
+                    f"{reason} Feedback multiplier {feedback_multiplier:.2f}x "
+                    f"({feedback_events} operator actions) applied."
+                )
 
             if rounded_target_units > max_units:
                 reason = (
@@ -483,9 +646,13 @@ class RecommendationEngine:
                     "forecast_window_demand_units": round(raw_target_units, 1),
                     "ready_inventory_units": ready_inventory_units,
                     "fryer_inventory_units": fryer_inventory_units,
+                    "projected_inventory_gap_units": round(projected_shortfall_units, 1),
+                    "projected_inventory_gap_ratio": round(projected_shortfall_ratio, 3),
                     "decision_locked": not decision_due,
                     "next_decision_in_sec": next_decision_in_sec,
-                    "urgency": urgency_by_customer_load,
+                    "feedback_multiplier": round(feedback_multiplier, 3),
+                    "feedback_events": feedback_events,
+                    "urgency": urgency_by_gap,
                     "reason": reason,
                 }
             )
@@ -522,11 +689,17 @@ class RecommendationEngine:
                 "decision_interval_sec": int(round(self.decision_interval_sec)),
                 "cook_time_sec": int(round(self.cook_time_sec)),
                 "avg_ticket_usd": round(self.avg_ticket_usd, 2),
+                "urgency_thresholds": {
+                    "medium_shortfall_ratio": round(self.medium_urgency_shortfall_ratio, 3),
+                    "high_shortfall_ratio": round(self.high_urgency_shortfall_ratio, 3),
+                },
                 "notes": [
                     "Drop sizing is based on projected customer count (drive-thru + in-store) and per-order item averages.",
+                    "Urgency is based on projected inventory shortfall ratio ((projected demand - available inventory) / projected demand).",
                     "Decisions are held for a short interval to reduce recommendation oscillation.",
                     "Each item recommendation is rounded to the nearest whole unit.",
                     "Recommendations are capped at each item's configured max unit size.",
+                    "Operator feedback continuously tunes item-level multipliers toward real kitchen behavior.",
                     "Business impact values are directional estimates for decision support.",
                 ],
             },

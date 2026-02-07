@@ -7,7 +7,7 @@ import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -154,6 +154,37 @@ class BusinessProfilePayload(BaseModel):
         if not stripped:
             raise ValueError("value must not be empty")
         return stripped
+
+
+class RecommendationFeedbackPayload(BaseModel):
+    item: str = Field(min_length=1, max_length=80)
+    action: Literal["accept", "override", "ignore"]
+    override_units: int | None = Field(default=None, ge=0, le=5000)
+    note: str | None = Field(default=None, max_length=240)
+
+    @field_validator("item")
+    @classmethod
+    def normalize_item(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("item must not be empty")
+        return stripped
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def validate_override(self) -> RecommendationFeedbackPayload:
+        if self.action == "override" and self.override_units is None:
+            raise ValueError("override_units is required when action='override'")
+        if self.action != "override" and self.override_units is not None:
+            raise ValueError("override_units is only allowed when action='override'")
+        return self
 
 SAMPLE_BUSINESS_PROFILE: dict[str, Any] = {
     "business_name": "Steel City Chicken",
@@ -529,6 +560,17 @@ def _analytics_sample_provider() -> tuple[dict[str, Any], dict[str, Any]]:
     return snapshot, recommendations_payload
 
 
+def _latest_recommendations_payload() -> dict[str, Any]:
+    cached = analytics_store.get_latest_recommendation()
+    if _is_payload_fresh(cached):
+        with reco_lock:
+            profiles_by_key = {profile.key: profile for profile in recommender.item_profiles}
+        return _enforce_recommendation_limits(cached, profiles_by_key=profiles_by_key)
+
+    snapshot = _aggregate_snapshot()
+    return _generate_recommendations(snapshot)
+
+
 def _is_payload_fresh(payload: dict[str, Any] | None, *, max_age_sec: float = API_CACHE_MAX_AGE_SEC) -> bool:
     if payload is None:
         return False
@@ -792,19 +834,122 @@ def camera_metrics(camera_id: str) -> JSONResponse:
 
 @app.get("/api/recommendations")
 def recommendations() -> JSONResponse:
-    cached = analytics_store.get_latest_recommendation()
-    if _is_payload_fresh(cached):
-        with reco_lock:
-            profiles_by_key = {profile.key: profile for profile in recommender.item_profiles}
-        return JSONResponse(_enforce_recommendation_limits(cached, profiles_by_key=profiles_by_key))
-
-    snapshot = _aggregate_snapshot()
-    return JSONResponse(_generate_recommendations(snapshot))
+    return JSONResponse(_latest_recommendations_payload())
 
 
 @app.get("/api/demo-readiness")
 def demo_readiness() -> JSONResponse:
     return JSONResponse(_build_demo_readiness())
+
+
+@app.post("/api/recommendation-feedback")
+def submit_recommendation_feedback(payload: RecommendationFeedbackPayload) -> JSONResponse:
+    recommendations_payload = _latest_recommendations_payload()
+    items = recommendations_payload.get("recommendations", [])
+    if not isinstance(items, list):
+        raise HTTPException(status_code=503, detail="Recommendations are not available yet.")
+
+    recommendation_item = next(
+        (
+            item
+            for item in items
+            if isinstance(item, dict) and str(item.get("item", "")).strip() == payload.item
+        ),
+        None,
+    )
+    if recommendation_item is None:
+        raise HTTPException(status_code=404, detail=f"Recommendation item '{payload.item}' was not found.")
+
+    with reco_lock:
+        profiles_by_key = {profile.key: profile for profile in recommender.item_profiles}
+        profile = profiles_by_key.get(payload.item)
+        if profile is None:
+            raise HTTPException(status_code=404, detail=f"Unknown menu item '{payload.item}'.")
+
+        max_unit_size = int(profile.max_unit_size)
+
+        try:
+            recommended_units = int(round(float(recommendation_item.get("recommended_units", 0))))
+        except (TypeError, ValueError):
+            recommended_units = int(profile.baseline_drop_units)
+        try:
+            baseline_units = int(round(float(recommendation_item.get("baseline_units", 0))))
+        except (TypeError, ValueError):
+            baseline_units = int(profile.baseline_drop_units)
+
+        recommended_units = min(max(0, recommended_units), max_unit_size)
+        baseline_units = min(max(0, baseline_units), max_unit_size)
+
+        if payload.action == "accept":
+            chosen_units = recommended_units
+        elif payload.action == "ignore":
+            chosen_units = baseline_units
+        else:
+            chosen_units = min(max(0, int(payload.override_units or 0)), max_unit_size)
+
+        adaptation = recommender.apply_operator_feedback(
+            item_key=profile.key,
+            action=payload.action,
+            recommended_units=recommended_units,
+            chosen_units=chosen_units,
+        )
+
+        fallback_horizon = float(recommender.forecast_horizon_min)
+        fallback_avg_ticket = float(recommender.avg_ticket_usd)
+
+    forecast_payload = recommendations_payload.get("forecast", {})
+    assumptions_payload = recommendations_payload.get("assumptions", {})
+    timestamp = str(recommendations_payload.get("timestamp", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")))
+
+    try:
+        forecast_horizon_min = float(forecast_payload.get("horizon_min", fallback_horizon) or fallback_horizon)
+    except (TypeError, ValueError):
+        forecast_horizon_min = fallback_horizon
+    try:
+        projected_customers = float(forecast_payload.get("projected_customers", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        projected_customers = 0.0
+    try:
+        avg_ticket_usd = float(assumptions_payload.get("avg_ticket_usd", fallback_avg_ticket) or fallback_avg_ticket)
+    except (TypeError, ValueError):
+        avg_ticket_usd = fallback_avg_ticket
+
+    recorded_feedback = analytics_store.record_feedback(
+        timestamp=timestamp,
+        item_key=profile.key,
+        item_label=profile.label,
+        action=payload.action,
+        note=payload.note,
+        recommended_units=recommended_units,
+        chosen_units=chosen_units,
+        baseline_units=baseline_units,
+        max_unit_size=max_unit_size,
+        unit_cost_usd=float(profile.unit_cost_usd),
+        units_per_order=float(profile.units_per_order),
+        forecast_horizon_min=forecast_horizon_min,
+        projected_customers=projected_customers,
+        queue_state=str(forecast_payload.get("queue_state", "unknown")),
+        avg_ticket_usd=avg_ticket_usd,
+    )
+
+    return JSONResponse(
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "feedback": recorded_feedback,
+            "adaptation": adaptation,
+        }
+    )
+
+
+@app.get("/api/recommendation-feedback/summary")
+def recommendation_feedback_summary(
+    minutes: int = Query(default=240, ge=5, le=10080),
+    limit: int = Query(default=200, ge=10, le=2000),
+) -> JSONResponse:
+    payload = analytics_store.get_feedback_summary(minutes=minutes, limit=limit)
+    with reco_lock:
+        payload["model_adaptation"] = recommender.get_feedback_adaptation_summary()
+    return JSONResponse(payload)
 
 
 @app.get("/api/analytics/history")
