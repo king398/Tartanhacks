@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Generator
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 from app.pipeline import VideoProcessor
+from app.recommendations import RecommendationEngine
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_INDEX = BASE_DIR / "frontend" / "index.html"
+DEFAULT_VIDEO_SOURCE = os.getenv("VIDEO_PATH", str(BASE_DIR / "sample.mp4"))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -48,8 +53,16 @@ def _parse_roi(value: str | None) -> tuple[float, float, float, float] | None:
     return (x1, y1, x2, y2)
 
 
+def _env_list(name: str, default: list[str]) -> list[str]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    items = [item.strip() for item in value.split(",")]
+    return [item for item in items if item]
+
+
 processor = VideoProcessor(
-    video_path=os.getenv("VIDEO_PATH", str(BASE_DIR / "sample.mp4")),
+    video_path=DEFAULT_VIDEO_SOURCE,
     model_name=os.getenv("YOLO_MODEL", "yolo26m.pt"),
     sample_fps=_env_float("SAMPLE_FPS", 30.0),
     conf=_env_float("CONF_THRESHOLD", 0.35),
@@ -61,8 +74,28 @@ processor = VideoProcessor(
     in_store_roi=_parse_roi(os.getenv("IN_STORE_ROI")),
     device=os.getenv("YOLO_DEVICE", "auto"),
 )
+recommender = RecommendationEngine()
+reco_lock = threading.Lock()
+
+
+class StreamSourcePayload(BaseModel):
+    source: str
+
+
+def _stream_source_response() -> dict[str, str]:
+    return {
+        "source": processor.get_video_source(),
+        "default_source": DEFAULT_VIDEO_SOURCE,
+    }
 
 app = FastAPI(title="Fast Food Line Estimation Demo", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_env_list("CORS_ORIGINS", ["http://localhost:3000", "http://127.0.0.1:3000"]),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
@@ -85,6 +118,39 @@ def index() -> FileResponse:
 @app.get("/api/metrics")
 def metrics() -> JSONResponse:
     return JSONResponse(processor.get_latest_snapshot())
+
+
+@app.get("/api/recommendations")
+def recommendations() -> JSONResponse:
+    snapshot = processor.get_latest_snapshot()
+    with reco_lock:
+        response = recommender.generate(snapshot)
+    return JSONResponse(response)
+
+
+@app.get("/api/stream-source")
+def get_stream_source() -> JSONResponse:
+    return JSONResponse(_stream_source_response())
+
+
+@app.post("/api/stream-source")
+def update_stream_source(payload: StreamSourcePayload) -> JSONResponse:
+    source = payload.source.strip()
+    if not source:
+        raise HTTPException(status_code=422, detail="source must not be empty")
+
+    try:
+        processor.set_video_source(source)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return JSONResponse(_stream_source_response())
+
+
+@app.post("/api/stream-source/reset")
+def reset_stream_source() -> JSONResponse:
+    processor.set_video_source(DEFAULT_VIDEO_SOURCE)
+    return JSONResponse(_stream_source_response())
 
 
 def _mjpeg_generator() -> Generator[bytes, None, None]:

@@ -15,6 +15,7 @@ from ultralytics import YOLO
 @dataclass
 class QueueSnapshot:
     timestamp: str
+    stream_source: str
     drive_thru_car_count: int
     drive_thru_est_passengers: float
     in_store_person_count: int
@@ -28,6 +29,7 @@ class QueueSnapshot:
     def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp,
+            "stream_source": self.stream_source,
             "drive_thru": {
                 "car_count": self.drive_thru_car_count,
                 "est_passengers": self.drive_thru_est_passengers,
@@ -62,6 +64,8 @@ class VideoProcessor:
         device: str | int | None = "auto",
     ) -> None:
         self.video_path = str(video_path)
+        self._source_lock = threading.Lock()
+        self._source_version = 0
         self.sample_fps = max(1.0, sample_fps)
         self.conf = conf
         self.iou = iou
@@ -106,14 +110,33 @@ class VideoProcessor:
             return None
         return jpg.tobytes()
 
+    def get_video_source(self) -> str:
+        with self._source_lock:
+            return self.video_path
+
+    def set_video_source(self, source: str | Path) -> str:
+        normalized = str(source).strip()
+        if not normalized:
+            raise ValueError("Video source cannot be empty.")
+        with self._source_lock:
+            if normalized != self.video_path:
+                self.video_path = normalized
+                self._source_version += 1
+            return self.video_path
+
+    def _get_video_source_state(self) -> tuple[str, int]:
+        with self._source_lock:
+            return self.video_path, self._source_version
+
     def _run(self) -> None:
         frame_number = 0
         smoothed_fps = 0.0
         last_frame_tick: float | None = None
         while not self._stop_event.is_set():
-            cap = cv2.VideoCapture(self.video_path)
+            video_path, source_version = self._get_video_source_state()
+            cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
-                self._draw_error_frame(f"Cannot open video: {self.video_path}")
+                self._draw_error_frame(f"Cannot open video: {video_path}", stream_source=video_path)
                 self._stop_event.wait(1.0)
                 continue
 
@@ -124,6 +147,10 @@ class VideoProcessor:
             target_delta = frame_stride / source_fps
 
             while not self._stop_event.is_set():
+                _, current_version = self._get_video_source_state()
+                if current_version != source_version:
+                    break
+
                 frame = self._read_with_stride(cap, frame_stride)
                 if frame is None:
                     break
@@ -140,7 +167,7 @@ class VideoProcessor:
                 last_frame_tick = now
 
                 start_time = time.perf_counter()
-                annotated, snapshot = self._infer(frame, frame_number, smoothed_fps)
+                annotated, snapshot = self._infer(frame, frame_number, smoothed_fps, stream_source=video_path)
 
                 with self._lock:
                     self._latest_frame = annotated
@@ -152,7 +179,13 @@ class VideoProcessor:
 
             cap.release()
 
-    def _infer(self, frame: np.ndarray, frame_number: int, processing_fps: float) -> tuple[np.ndarray, QueueSnapshot]:
+    def _infer(
+        self,
+        frame: np.ndarray,
+        frame_number: int,
+        processing_fps: float,
+        stream_source: str,
+    ) -> tuple[np.ndarray, QueueSnapshot]:
         draw = frame.copy()
         frame_h, frame_w = draw.shape[:2]
         drive_roi = self._to_absolute_roi(self.drive_thru_roi, frame_w, frame_h)
@@ -218,6 +251,7 @@ class VideoProcessor:
 
         snapshot = QueueSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            stream_source=stream_source,
             drive_thru_car_count=car_count,
             drive_thru_est_passengers=est_passengers,
             in_store_person_count=person_count,
@@ -277,16 +311,30 @@ class VideoProcessor:
             y = 50 + (i * 28)
             cv2.putText(frame, line, (35, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-    def _draw_error_frame(self, message: str) -> None:
+    def _draw_error_frame(self, message: str, stream_source: str) -> None:
         error_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         cv2.putText(error_frame, "Video Stream Error", (60, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
         cv2.putText(error_frame, message[:90], (60, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         with self._lock:
             self._latest_frame = error_frame
+            self._latest_snapshot = QueueSnapshot(
+                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                stream_source=stream_source,
+                drive_thru_car_count=0,
+                drive_thru_est_passengers=0.0,
+                in_store_person_count=0,
+                total_customers=0.0,
+                avg_service_time_sec=self.avg_service_time_sec,
+                estimated_wait_time_min=0.0,
+                frame_number=0,
+                inference_device=str(self.device),
+                processing_fps=0.0,
+            )
 
     def _empty_snapshot(self) -> QueueSnapshot:
         return QueueSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            stream_source=self.get_video_source(),
             drive_thru_car_count=0,
             drive_thru_est_passengers=0.0,
             in_store_person_count=0,
