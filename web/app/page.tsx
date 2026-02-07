@@ -182,6 +182,28 @@ export default function Home() {
     return Object.fromEntries(entries) as Record<CameraId, string>;
   }, [metrics?.cameras, streamSources]);
 
+  const impactFormulaInputs = useMemo(() => {
+    const projectedCustomers = reco?.forecast.projected_customers ?? 0;
+    const wasteAvoidedUnits = reco?.impact.estimated_waste_avoided_units ?? 0;
+    const costSavedUsd = reco?.impact.estimated_cost_saved_usd ?? 0;
+    const waitReductionMin = reco?.impact.estimated_wait_reduction_min ?? 0;
+    const avgTicketUsd = reco?.assumptions.avg_ticket_usd ?? 0;
+    const queuePressure = Math.max(0, Math.min(1, projectedCustomers / 24));
+    const expectedConversionLift = Math.max(0, Math.min(0.16, waitReductionMin * 0.025));
+    const impliedSavedUnitCost = wasteAvoidedUnits > 0 ? costSavedUsd / wasteAvoidedUnits : 0;
+
+    return {
+      projectedCustomers,
+      wasteAvoidedUnits,
+      costSavedUsd,
+      waitReductionMin,
+      avgTicketUsd,
+      queuePressure,
+      expectedConversionLift,
+      impliedSavedUnitCost,
+    };
+  }, [reco]);
+
   return (
     <main className="mx-auto grid w-[min(1280px,calc(100%-24px))] gap-3 py-3 md:w-[min(1280px,calc(100%-36px))] md:py-4">
       <section className="panel animate-floatIn rounded-3xl p-4 md:p-5">
@@ -333,6 +355,69 @@ export default function Home() {
               Avg ticket: <span className="display font-semibold text-graphite">{formatMoney(reco?.assumptions.avg_ticket_usd ?? 0)}</span>
             </p>
           </div>
+
+          <details className="mt-3 rounded-2xl border accent-card p-3 text-sm text-slate-700">
+            <summary className="cursor-pointer select-none font-semibold text-graphite">
+              How are these calculated? (show formulas)
+            </summary>
+            <div className="mt-2 space-y-2 text-xs leading-relaxed md:text-sm">
+              <p>
+                <span className="font-semibold">Waste Avoided</span>
+                {" = "}
+                <span className="font-mono">sum(max(baseline_units - recommended_units, 0))</span>
+              </p>
+              <p>
+                Live value: <span className="font-semibold">{impactFormulaInputs.wasteAvoidedUnits.toFixed(1)} units</span>
+              </p>
+
+              <p>
+                <span className="font-semibold">Cost Savings</span>
+                {" = "}
+                <span className="font-mono">sum(saved_units * unit_cost_usd)</span>
+              </p>
+              <p>
+                Live value: <span className="font-semibold">{formatMoney(impactFormulaInputs.costSavedUsd)}</span>
+                {" "}
+                (implied blended cost per saved unit: {formatMoney(impactFormulaInputs.impliedSavedUnitCost)})
+              </p>
+
+              <p>
+                <span className="font-semibold">Expected Wait Reduction</span>
+                {" = "}
+                <span className="font-mono">clamp((waste_avoided / 8) + (queue_pressure * 1.5), 0.2, 3.2)</span>
+              </p>
+              <p>
+                queue_pressure = <span className="font-mono">clamp(projected_customers / 24, 0, 1)</span>
+                {" = "}
+                <span className="font-semibold">{impactFormulaInputs.queuePressure.toFixed(3)}</span> with{" "}
+                {impactFormulaInputs.projectedCustomers.toFixed(1)} projected customers
+              </p>
+              <p>
+                Live value: <span className="font-semibold">{impactFormulaInputs.waitReductionMin.toFixed(1)} min</span>
+              </p>
+
+              <p>
+                <span className="font-semibold">Revenue Protected</span>
+                {" = "}
+                <span className="font-mono">projected_customers * conversion_lift * avg_ticket_usd</span>
+              </p>
+              <p>
+                conversion_lift = <span className="font-mono">clamp(wait_reduction * 0.025, 0, 0.16)</span>
+                {" = "}
+                <span className="font-semibold">{(impactFormulaInputs.expectedConversionLift * 100).toFixed(2)}%</span>
+              </p>
+              <p>
+                Live value: {impactFormulaInputs.projectedCustomers.toFixed(1)} *{" "}
+                {(impactFormulaInputs.expectedConversionLift * 100).toFixed(2)}% * {formatMoney(impactFormulaInputs.avgTicketUsd)}
+                {" = "}
+                <span className="font-semibold">{formatMoney(reco?.impact.estimated_revenue_protected_usd ?? 0)}</span>
+              </p>
+
+              <p className="text-muted">
+                Trend is calculated from recent queue history slope (customers per minute). Recommendation math runs on the backend every refresh.
+              </p>
+            </div>
+          </details>
         </aside>
       </section>
     </main>
