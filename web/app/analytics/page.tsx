@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { API_BASE, fetchDashboardData } from "@/app/lib/api";
@@ -169,17 +168,6 @@ export default function AnalyticsPage() {
           <div className="space-y-2 text-sm text-muted md:text-right">
             <div>{latestUpdated}</div>
             <div className="text-xs">Backend: {API_BASE}</div>
-            <nav className="flex gap-2 md:justify-end">
-              <Link href="/" className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
-                Live View
-              </Link>
-              <Link
-                href="/analytics"
-                className="rounded-full border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-              >
-                Analytics
-              </Link>
-            </nav>
           </div>
         </div>
 

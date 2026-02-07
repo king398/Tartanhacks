@@ -17,6 +17,9 @@ Pipeline:
 
 - `GET /api/metrics`: real-time queue and performance metrics.
 - `GET /api/recommendations`: dynamic batch recommendations + business impact estimates.
+- `GET /api/business-profile`: active business identity + menu profile used by recommendations.
+- `POST /api/business-profile`: update business profile and menu items.
+- `POST /api/business-profile/reset`: restore built-in sample business profile.
 - `GET /api/stream-source`: active/default backend video source.
 - `POST /api/stream-source`: switch to a new file path or stream URL at runtime.
 - `POST /api/stream-source/reset`: restore the default source from `VIDEO_PATH`.
@@ -83,9 +86,13 @@ npm run dev
 Next.js dashboard URL:
 - `http://localhost:3000`
 - `http://localhost:3000/analytics`
+- `http://localhost:3000/business-profile`
 
 Use **Custom Stream Source** on the dashboard to switch to your own live stream without restarting the backend.
 You can provide RTSP/HTTP URLs, local file paths, or a webcam index like `0`.
+
+Use **Business Profile & Menu** on the dashboard to customize your business name, ticket assumptions, and menu items.
+Recommendations and impact values update from this profile, and you can reset to a sample business with one click.
 
 ## Key Environment Variables
 

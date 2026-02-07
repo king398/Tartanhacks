@@ -25,6 +25,11 @@ class RecommendationEngine:
         self.drop_cadence_min = self._env_float("RECO_DROP_CADENCE_MIN", 4.0)
         self.avg_ticket_usd = self._env_float("AVG_TICKET_USD", 10.5)
 
+        self.business_name = "Steel City Chicken"
+        self.business_type = "Fast Food"
+        self.location = "Pittsburgh, PA"
+        self.service_model = "Drive-thru + Counter"
+
         self.item_profiles: tuple[ItemProfile, ...] = (
             ItemProfile(
                 key="fillets",
@@ -82,6 +87,55 @@ class RecommendationEngine:
     @staticmethod
     def _clamp(value: float, lower: float, upper: float) -> float:
         return max(lower, min(upper, value))
+
+    def _business_summary(self) -> dict[str, str]:
+        return {
+            "name": self.business_name,
+            "type": self.business_type,
+            "location": self.location,
+            "service_model": self.service_model,
+        }
+
+    def configure_business_profile(
+        self,
+        *,
+        business_name: str,
+        business_type: str,
+        location: str,
+        service_model: str,
+        drop_cadence_min: float,
+        avg_ticket_usd: float,
+        item_profiles: list[ItemProfile],
+    ) -> dict[str, Any]:
+        self.business_name = business_name.strip() or self.business_name
+        self.business_type = business_type.strip() or self.business_type
+        self.location = location.strip() or self.location
+        self.service_model = service_model.strip() or self.service_model
+        self.drop_cadence_min = max(0.5, float(drop_cadence_min))
+        self.avg_ticket_usd = max(0.01, float(avg_ticket_usd))
+        self.item_profiles = tuple(item_profiles)
+        return self.get_business_profile()
+
+    def get_business_profile(self) -> dict[str, Any]:
+        return {
+            "business_name": self.business_name,
+            "business_type": self.business_type,
+            "location": self.location,
+            "service_model": self.service_model,
+            "drop_cadence_min": round(self.drop_cadence_min, 1),
+            "avg_ticket_usd": round(self.avg_ticket_usd, 2),
+            "menu_items": [
+                {
+                    "key": profile.key,
+                    "label": profile.label,
+                    "units_per_order": profile.units_per_order,
+                    "batch_size": profile.batch_size,
+                    "baseline_drop_units": profile.baseline_drop_units,
+                    "unit_cost_usd": profile.unit_cost_usd,
+                }
+                for profile in self.item_profiles
+            ],
+        }
 
     def _trend_per_min(self) -> float:
         if len(self._history) < 2:
@@ -141,6 +195,7 @@ class RecommendationEngine:
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "business": self._business_summary(),
             "forecast": {
                 "horizon_min": round(self.forecast_horizon_min, 1),
                 "queue_state": "unavailable",
@@ -245,6 +300,7 @@ class RecommendationEngine:
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "business": self._business_summary(),
             "forecast": {
                 "horizon_min": round(self.forecast_horizon_min, 1),
                 "queue_state": queue_state,

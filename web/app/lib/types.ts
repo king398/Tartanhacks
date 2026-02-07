@@ -28,6 +28,12 @@ export type RecommendationItem = {
 
 export type RecommendationResponse = {
   timestamp: string;
+  business?: {
+    name: string;
+    type: string;
+    location: string;
+    service_model: string;
+  };
   forecast: {
     horizon_min: number;
     queue_state: string;
@@ -54,4 +60,23 @@ export type RecommendationResponse = {
 export type StreamSourceResponse = {
   source: string;
   default_source: string;
+};
+
+export type MenuItemProfile = {
+  key?: string;
+  label: string;
+  units_per_order: number;
+  batch_size: number;
+  baseline_drop_units: number;
+  unit_cost_usd: number;
+};
+
+export type BusinessProfile = {
+  business_name: string;
+  business_type: string;
+  location: string;
+  service_model: string;
+  drop_cadence_min: number;
+  avg_ticket_usd: number;
+  menu_items: MenuItemProfile[];
 };

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { DM_Sans, Sora } from "next/font/google";
 
+import TopNav from "@/app/components/top-nav";
+
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -25,7 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${dmSans.variable} ${sora.variable}`}>{children}</body>
+      <body className={`${dmSans.variable} ${sora.variable}`}>
+        <TopNav />
+        {children}
+      </body>
     </html>
   );
 }

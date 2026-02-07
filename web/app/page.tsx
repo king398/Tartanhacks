@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { API_BASE, fetchDashboardData, fetchStreamSource, resetStreamSource, updateStreamSource } from "@/app/lib/api";
@@ -144,6 +143,8 @@ export default function Home() {
     }
   };
 
+  const activeBusinessName = reco?.business?.name ?? "Sample business";
+
   return (
     <main className="mx-auto grid w-[min(1280px,calc(100%-24px))] gap-4 py-4 md:w-[min(1280px,calc(100%-36px))] md:py-6">
       <section className="panel animate-floatIn rounded-3xl p-5 md:p-6">
@@ -152,11 +153,12 @@ export default function Home() {
             <div className="gradient-chip inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-white">
               Neo-Minimal Gradient
             </div>
-            <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">
-              Queue Command Center
-            </h1>
+            <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">Queue Command Center</h1>
             <p className="text-sm text-muted md:text-base">
               Real-time computer vision intelligence with dynamic production recommendations.
+            </p>
+            <p className="text-sm text-slate-700">
+              Active business: <span className="display font-semibold text-graphite">{activeBusinessName}</span>
             </p>
           </div>
 
@@ -167,23 +169,10 @@ export default function Home() {
             </div>
             <div>{timestampLabel}</div>
             <div className="text-xs">Backend: {API_BASE}</div>
-            <nav className="flex gap-2 md:justify-end">
-              <Link href="/" className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
-                Live View
-              </Link>
-              <Link
-                href="/analytics"
-                className="rounded-full border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-              >
-                Analytics
-              </Link>
-            </nav>
           </div>
         </div>
 
-        {error ? (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-        ) : null}
+        {error ? <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
         <form onSubmit={applySource} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -234,9 +223,7 @@ export default function Home() {
           <div className="grid gap-3">
             <div className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Queue Forecast</p>
-              <p className="mt-2 display text-3xl font-semibold text-graphite">
-                {reco?.forecast.projected_customers?.toFixed(1) ?? "0.0"}
-              </p>
+              <p className="mt-2 display text-3xl font-semibold text-graphite">{reco?.forecast.projected_customers?.toFixed(1) ?? "0.0"}</p>
               <p className="text-sm text-muted">Projected customers in {reco?.forecast.horizon_min ?? 0} minutes</p>
               <p className="mt-2 text-sm text-slate-600">
                 State: <span className="display font-semibold capitalize">{reco?.forecast.queue_state ?? "unknown"}</span>
@@ -245,9 +232,7 @@ export default function Home() {
 
             <div className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Decision Confidence</p>
-              <p className="mt-2 display text-3xl font-semibold gradient-text">
-                {reco ? `${Math.round(reco.forecast.confidence * 100)}%` : "0%"}
-              </p>
+              <p className="mt-2 display text-3xl font-semibold gradient-text">{reco ? `${Math.round(reco.forecast.confidence * 100)}%` : "0%"}</p>
               <p className="text-sm text-muted">Based on trend stability and processing throughput.</p>
             </div>
           </div>
@@ -264,9 +249,7 @@ export default function Home() {
           </article>
           <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Est. Wait Time</p>
-            <p className="mt-2 display text-2xl font-semibold text-amber-700">
-              {metrics?.aggregates.estimated_wait_time_min?.toFixed(1) ?? "0.0"} min
-            </p>
+            <p className="mt-2 display text-2xl font-semibold text-amber-700">{metrics?.aggregates.estimated_wait_time_min?.toFixed(1) ?? "0.0"} min</p>
           </article>
           <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Inference</p>
@@ -288,9 +271,7 @@ export default function Home() {
               <article key={item.item} className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="display text-lg font-semibold text-graphite">{item.label}</h3>
-                  <span
-                    className={`rounded-full border px-2.5 py-1 text-xs font-bold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}
-                  >
+                  <span className={`rounded-full border px-2.5 py-1 text-xs font-bold uppercase tracking-[0.08em] ${urgencyBadge[item.urgency]}`}>
                     {item.urgency}
                   </span>
                 </div>
@@ -312,9 +293,7 @@ export default function Home() {
             ))}
 
             {reco?.recommendations.length ? null : (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">
-                Waiting for recommendations...
-              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">Waiting for recommendations...</div>
             )}
           </div>
         </div>
@@ -326,45 +305,31 @@ export default function Home() {
           <div className="mt-4 grid gap-3">
             <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Waste Avoided</p>
-              <p className="mt-2 display text-2xl font-semibold text-emerald-700">
-                {reco?.impact.estimated_waste_avoided_units?.toFixed(1) ?? "0.0"} units
-              </p>
+              <p className="mt-2 display text-2xl font-semibold text-emerald-700">{reco?.impact.estimated_waste_avoided_units?.toFixed(1) ?? "0.0"} units</p>
             </article>
             <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Cost Savings</p>
-              <p className="mt-2 display text-2xl font-semibold text-cyan-700">
-                {formatMoney(reco?.impact.estimated_cost_saved_usd ?? 0)}
-              </p>
+              <p className="mt-2 display text-2xl font-semibold text-cyan-700">{formatMoney(reco?.impact.estimated_cost_saved_usd ?? 0)}</p>
             </article>
             <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Revenue Protected</p>
-              <p className="mt-2 display text-2xl font-semibold gradient-text">
-                {formatMoney(reco?.impact.estimated_revenue_protected_usd ?? 0)}
-              </p>
+              <p className="mt-2 display text-2xl font-semibold gradient-text">{formatMoney(reco?.impact.estimated_revenue_protected_usd ?? 0)}</p>
             </article>
             <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Expected Wait Reduction</p>
-              <p className="mt-2 display text-2xl font-semibold text-amber-700">
-                {reco?.impact.estimated_wait_reduction_min?.toFixed(1) ?? "0.0"} min
-              </p>
+              <p className="mt-2 display text-2xl font-semibold text-amber-700">{reco?.impact.estimated_wait_reduction_min?.toFixed(1) ?? "0.0"} min</p>
             </article>
           </div>
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">
             <p>
-              Trend:{" "}
-              <span className="display font-semibold text-graphite">
-                {reco?.forecast.trend_customers_per_min?.toFixed(2) ?? "0.00"}
-              </span>{" "}
-              customers/min
+              Trend: <span className="display font-semibold text-graphite">{reco?.forecast.trend_customers_per_min?.toFixed(2) ?? "0.00"}</span> customers/min
             </p>
             <p>
-              Drop cadence:{" "}
-              <span className="display font-semibold text-graphite">{reco?.assumptions.drop_cadence_min ?? 0} min</span>
+              Drop cadence: <span className="display font-semibold text-graphite">{reco?.assumptions.drop_cadence_min ?? 0} min</span>
             </p>
             <p>
-              Avg ticket:{" "}
-              <span className="display font-semibold text-graphite">{formatMoney(reco?.assumptions.avg_ticket_usd ?? 0)}</span>
+              Avg ticket: <span className="display font-semibold text-graphite">{formatMoney(reco?.assumptions.avg_ticket_usd ?? 0)}</span>
             </p>
           </div>
         </aside>
