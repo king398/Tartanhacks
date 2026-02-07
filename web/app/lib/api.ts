@@ -1,4 +1,13 @@
-import type { BusinessProfile, Metrics, RecommendationResponse, StreamSourceResponse } from "@/app/lib/types";
+import type {
+  AnalyticsHistoryResponse,
+  BusinessProfile,
+  CameraId,
+  DemoReadiness,
+  Metrics,
+  RecommendationResponse,
+  StreamSourceResponse,
+  StreamSourcesResponse,
+} from "@/app/lib/types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -58,6 +67,51 @@ export async function resetStreamSource(): Promise<StreamSourceResponse> {
   return (await response.json()) as StreamSourceResponse;
 }
 
+export async function fetchStreamSources(): Promise<StreamSourcesResponse> {
+  const response = await fetch(`${API_BASE}/api/stream-sources`, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("Could not load stream sources.");
+  }
+
+  return (await response.json()) as StreamSourcesResponse;
+}
+
+export async function updateStreamSourceForCamera(cameraId: CameraId, source: string): Promise<StreamSourceResponse> {
+  const response = await fetch(`${API_BASE}/api/stream-sources/${cameraId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source }),
+  });
+
+  if (!response.ok) {
+    let detail = "Unable to update stream source.";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      // Keep default detail.
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as StreamSourceResponse;
+}
+
+export async function resetStreamSourceForCamera(cameraId: CameraId): Promise<StreamSourceResponse> {
+  const response = await fetch(`${API_BASE}/api/stream-sources/${cameraId}/reset`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to reset stream source.");
+  }
+
+  return (await response.json()) as StreamSourceResponse;
+}
+
 export async function fetchBusinessProfile(): Promise<BusinessProfile> {
   const response = await fetch(`${API_BASE}/api/business-profile`, { cache: "no-store" });
 
@@ -101,4 +155,38 @@ export async function resetBusinessProfile(): Promise<BusinessProfile> {
   }
 
   return (await response.json()) as BusinessProfile;
+}
+
+export async function fetchDemoReadiness(): Promise<DemoReadiness> {
+  const response = await fetch(`${API_BASE}/api/demo-readiness`, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("Could not load demo readiness.");
+  }
+
+  return (await response.json()) as DemoReadiness;
+}
+
+export async function fetchAnalyticsHistory(params?: {
+  minutes?: number;
+  limit?: number;
+  bucket_sec?: number;
+}): Promise<AnalyticsHistoryResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.minutes !== undefined) {
+    searchParams.set("minutes", String(params.minutes));
+  }
+  if (params?.limit !== undefined) {
+    searchParams.set("limit", String(params.limit));
+  }
+  if (params?.bucket_sec !== undefined) {
+    searchParams.set("bucket_sec", String(params.bucket_sec));
+  }
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const response = await fetch(`${API_BASE}/api/analytics/history${suffix}`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Could not load analytics history.");
+  }
+  return (await response.json()) as AnalyticsHistoryResponse;
 }

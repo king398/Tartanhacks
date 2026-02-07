@@ -14,6 +14,7 @@ class ItemProfile:
     label: str
     units_per_order: float
     batch_size: int
+    max_unit_size: int
     baseline_drop_units: int
     unit_cost_usd: float
 
@@ -36,6 +37,7 @@ class RecommendationEngine:
                 label="Chicken Fillets",
                 units_per_order=0.58,
                 batch_size=8,
+                max_unit_size=24,
                 baseline_drop_units=16,
                 unit_cost_usd=0.92,
             ),
@@ -44,6 +46,7 @@ class RecommendationEngine:
                 label="Nuggets",
                 units_per_order=0.36,
                 batch_size=6,
+                max_unit_size=20,
                 baseline_drop_units=12,
                 unit_cost_usd=0.68,
             ),
@@ -52,6 +55,7 @@ class RecommendationEngine:
                 label="Fries",
                 units_per_order=0.72,
                 batch_size=10,
+                max_unit_size=28,
                 baseline_drop_units=18,
                 unit_cost_usd=0.44,
             ),
@@ -60,6 +64,7 @@ class RecommendationEngine:
                 label="Strips",
                 units_per_order=0.15,
                 batch_size=8,
+                max_unit_size=20,
                 baseline_drop_units=8,
                 unit_cost_usd=0.86,
             ),
@@ -130,6 +135,7 @@ class RecommendationEngine:
                     "label": profile.label,
                     "units_per_order": profile.units_per_order,
                     "batch_size": profile.batch_size,
+                    "max_unit_size": profile.max_unit_size,
                     "baseline_drop_units": profile.baseline_drop_units,
                     "unit_cost_usd": profile.unit_cost_usd,
                 }
@@ -170,7 +176,9 @@ class RecommendationEngine:
     ) -> dict[str, Any]:
         recommendations = []
         for profile in self.item_profiles:
+            max_batches = max(0, profile.max_unit_size // profile.batch_size)
             baseline_batches = math.ceil(profile.baseline_drop_units / profile.batch_size)
+            baseline_batches = min(baseline_batches, max_batches)
             baseline_units = baseline_batches * profile.batch_size
             recommendations.append(
                 {
@@ -251,15 +259,19 @@ class RecommendationEngine:
             required_units = projected_customers * profile.units_per_order
             safety_units = profile.batch_size * safety_ratio
             target_units = required_units + safety_units
+            max_batches = max(0, profile.max_unit_size // profile.batch_size)
 
             if projected_customers < 2.5 and queue_state == "falling":
                 min_batches = 0
             else:
                 min_batches = 1
 
-            recommended_batches = max(min_batches, math.ceil(target_units / profile.batch_size))
+            target_batches = math.ceil(target_units / profile.batch_size)
+            recommended_batches = max(min_batches, target_batches)
+            recommended_batches = min(recommended_batches, max_batches)
             recommended_units = recommended_batches * profile.batch_size
             baseline_batches = math.ceil(profile.baseline_drop_units / profile.batch_size)
+            baseline_batches = min(baseline_batches, max_batches)
             baseline_units = baseline_batches * profile.batch_size
 
             baseline_over = max(0.0, baseline_units - required_units)
@@ -278,6 +290,11 @@ class RecommendationEngine:
                 reason = f"Queue {queue_state}; reduce by {abs(delta_batches)} batch(es) to limit overproduction."
             else:
                 reason = "Current pace matches forecasted demand for the next cook cycle."
+            if target_batches > max_batches:
+                reason = (
+                    f"{reason} Capped at {profile.max_unit_size} units "
+                    f"({max_batches} batch(es)) based on configured max unit size."
+                )
 
             recommendations.append(
                 {

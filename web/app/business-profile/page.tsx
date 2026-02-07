@@ -6,11 +6,26 @@ import { useRouter } from "next/navigation";
 import { API_BASE, fetchBusinessProfile, resetBusinessProfile, updateBusinessProfile } from "@/app/lib/api";
 import type { BusinessProfile, MenuItemProfile } from "@/app/lib/types";
 
+function normalizeMenuItem(item: MenuItemProfile): MenuItemProfile {
+  const legacyItem = item as MenuItemProfile & { max_batch_size?: number };
+  const maxUnitSize = Math.max(1, Math.min(5000, Math.round(item.max_unit_size ?? legacyItem.max_batch_size ?? 64)));
+  const batchSize = Math.max(1, Math.min(Math.round(item.batch_size), maxUnitSize));
+  return { ...item, batch_size: batchSize, max_unit_size: maxUnitSize };
+}
+
+function normalizeProfile(profile: BusinessProfile): BusinessProfile {
+  return {
+    ...profile,
+    menu_items: profile.menu_items.map(normalizeMenuItem),
+  };
+}
+
 function menuTemplate(): MenuItemProfile {
   return {
     label: "New Menu Item",
     units_per_order: 0.3,
     batch_size: 6,
+    max_unit_size: 24,
     baseline_drop_units: 6,
     unit_cost_usd: 0.5,
   };
@@ -40,8 +55,9 @@ export default function BusinessProfilePage() {
         if (!alive) {
           return;
         }
-        setProfile(data);
-        setProfileDraft(data);
+        const normalized = normalizeProfile(data);
+        setProfile(normalized);
+        setProfileDraft(normalized);
       } catch (err) {
         if (!alive) {
           return;
@@ -66,7 +82,8 @@ export default function BusinessProfilePage() {
 
   const onProfileNumberChange = (field: "drop_cadence_min" | "avg_ticket_usd", value: string) => {
     const parsed = Number(value);
-    setProfileDraft((prev) => (prev ? { ...prev, [field]: Number.isFinite(parsed) ? parsed : 0 } : prev));
+    const numericValue = Number.isFinite(parsed) ? parsed : 0;
+    setProfileDraft((prev) => (prev ? { ...prev, [field]: numericValue } : prev));
   };
 
   const onMenuTextChange = (index: number, field: "label" | "key", value: string) => {
@@ -81,7 +98,7 @@ export default function BusinessProfilePage() {
 
   const onMenuNumberChange = (
     index: number,
-    field: "units_per_order" | "batch_size" | "baseline_drop_units" | "unit_cost_usd",
+    field: "units_per_order" | "batch_size" | "max_unit_size" | "baseline_drop_units" | "unit_cost_usd",
     value: string,
   ) => {
     const parsed = Number(value);
@@ -89,8 +106,28 @@ export default function BusinessProfilePage() {
       if (!prev) {
         return prev;
       }
-      const numericValue = Number.isFinite(parsed) ? parsed : 0;
-      const nextItems = prev.menu_items.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: numericValue } : item));
+
+      const nextItems = prev.menu_items.map((item, itemIndex) => {
+        if (itemIndex !== index) {
+          return item;
+        }
+
+        let numericValue = Number.isFinite(parsed) ? parsed : 0;
+        if (field === "max_unit_size") {
+          const nextMaxUnitSize = Math.max(1, Math.min(5000, Math.round(numericValue)));
+          return normalizeMenuItem({
+            ...item,
+            max_unit_size: nextMaxUnitSize,
+            batch_size: Math.min(item.batch_size, nextMaxUnitSize),
+          });
+        }
+
+        if (field === "batch_size") {
+          numericValue = Math.min(Math.max(1, Math.round(numericValue)), item.max_unit_size);
+        }
+
+        return { ...item, [field]: numericValue };
+      });
       return { ...prev, menu_items: nextItems };
     });
   };
@@ -168,8 +205,9 @@ export default function BusinessProfilePage() {
 
     try {
       const saved = await updateBusinessProfile(profileDraft);
-      setProfile(saved);
-      setProfileDraft(saved);
+      const normalized = normalizeProfile(saved);
+      setProfile(normalized);
+      setProfileDraft(normalized);
       setProfileStatus("Business profile saved. Recommendations now use your menu.");
       if (redirectTo) {
         router.push(redirectTo);
@@ -193,8 +231,9 @@ export default function BusinessProfilePage() {
 
     try {
       const sample = await resetBusinessProfile();
-      setProfile(sample);
-      setProfileDraft(sample);
+      const normalized = normalizeProfile(sample);
+      setProfile(normalized);
+      setProfileDraft(normalized);
       setProfileStatus("Sample business profile loaded.");
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : "Unable to load sample business.");
@@ -349,9 +388,22 @@ export default function BusinessProfilePage() {
                       <input
                         type="number"
                         min={1}
+                        max={item.max_unit_size}
                         step={1}
                         value={item.batch_size}
                         onChange={(event) => onMenuNumberChange(index, "batch_size", event.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                      />
+                    </label>
+                    <label className="text-xs text-slate-700">
+                      <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Max Unit Size</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={5000}
+                        step={1}
+                        value={item.max_unit_size}
+                        onChange={(event) => onMenuNumberChange(index, "max_unit_size", event.target.value)}
                         className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
                       />
                     </label>

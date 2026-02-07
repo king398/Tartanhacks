@@ -16,14 +16,24 @@ Pipeline:
 ## API Endpoints
 
 - `GET /api/metrics`: real-time queue and performance metrics.
+- `GET /api/metrics/{camera_id}`: per-camera metrics (`drive_thru`, `in_store`).
 - `GET /api/recommendations`: dynamic batch recommendations + business impact estimates.
+- `GET /api/demo-readiness`: live readiness score + pass/warn/fail checks for judging/demo reliability.
+- `GET /api/analytics/history`: persisted analytics history for charts (`minutes`, `limit`, `bucket_sec` query params).
+- `GET /api/analytics/live`: Server-Sent Events stream for live analytics updates.
 - `GET /api/business-profile`: active business identity + menu profile used by recommendations.
 - `POST /api/business-profile`: update business profile and menu items.
 - `POST /api/business-profile/reset`: restore built-in sample business profile.
 - `GET /api/stream-source`: active/default backend video source.
 - `POST /api/stream-source`: switch to a new file path or stream URL at runtime.
 - `POST /api/stream-source/reset`: restore the default source from `VIDEO_PATH`.
+- `GET /api/stream-sources`: active/default stream sources for all cameras.
+- `POST /api/stream-sources/{camera_id}`: update stream source for one camera.
+- `POST /api/stream-sources/{camera_id}/reset`: reset one camera stream source.
 - `GET /video/feed`: MJPEG annotated stream.
+- `GET /video/feed/{camera_id}`: MJPEG stream for one camera.
+
+Note: `GET /api/stream-source` and `GET /video/feed` are backward-compatible aliases for the `drive_thru` camera.
 
 ### Example `GET /api/recommendations` Response
 
@@ -85,6 +95,7 @@ npm run dev
 
 Next.js dashboard URL:
 - `http://localhost:3000`
+- `http://localhost:3000/judge-brief`
 - `http://localhost:3000/analytics`
 - `http://localhost:3000/business-profile`
 
@@ -97,14 +108,21 @@ Recommendations and impact values update from this profile, and you can reset to
 ## Key Environment Variables
 
 - `VIDEO_PATH`: input video path.
-- `YOLO_MODEL`: default `yolo26m.pt`.
-- `YOLO_DEVICE`: `auto`, `0`, `cuda:0`, or `cpu`.
+- `YOLO_MODEL`: default `yolo11n.pt` (smaller/faster).
+- `YOLO_DEVICE`: default `cuda:0` to target GPU (also supports `auto`, `0`, or `cpu`).
+- `DRIVE_THRU_VIDEO_PATH`: optional source override for drive-thru camera.
+- `IN_STORE_VIDEO_PATH`: optional source override for in-store camera (defaults to `sample1.mp4`).
 - `SAMPLE_FPS`: processed frames/sec (default `30`).
 - `IMG_SIZE`: model input image size (default `640`).
+- `DRIVE_THRU_CONF_THRESHOLD`: optional confidence override for drive-thru detections.
+- `IN_STORE_CONF_THRESHOLD`: optional confidence override for in-store person detections (default `0.2`).
 - `CORS_ORIGINS`: allowed frontend origins (default includes `localhost:3000`).
 - `RECO_FORECAST_HORIZON_MIN`: recommendation forecast window.
 - `RECO_DROP_CADENCE_MIN`: recommendation cadence assumption.
 - `AVG_TICKET_USD`: used for directional revenue impact estimate.
+- `ANALYTICS_DB_PATH`: SQLite path for persisted analytics history (default `analytics.db` in repo root).
+- `ANALYTICS_SAMPLE_INTERVAL_SEC`: background analytics sample cadence (default `1.0` sec).
+- `ANALYTICS_MEMORY_POINTS`: in-memory rolling analytics cache size (default `7200` points).
 
 ## Notes
 

@@ -57,7 +57,7 @@ class VideoProcessor:
     def __init__(
         self,
         video_path: str | Path,
-        model_name: str = "yolo26m.pt",
+        model_name: str = "yolo11n.pt",
         sample_fps: float = 30.0,
         conf: float = 0.35,
         iou: float = 0.5,
@@ -66,7 +66,9 @@ class VideoProcessor:
         avg_service_time_sec: float = 45.0,
         drive_thru_roi: tuple[float, float, float, float] | None = None,
         in_store_roi: tuple[float, float, float, float] | None = None,
-        device: str | int | None = "auto",
+        detect_drive_thru_vehicles: bool = True,
+        detect_in_store_people: bool = True,
+        device: str | int | None = "cuda:0",
     ) -> None:
         self.video_path = str(video_path)
         self._source_lock = threading.Lock()
@@ -79,6 +81,8 @@ class VideoProcessor:
         self.avg_service_time_sec = avg_service_time_sec
         self.drive_thru_roi = drive_thru_roi
         self.in_store_roi = in_store_roi
+        self.detect_drive_thru_vehicles = detect_drive_thru_vehicles
+        self.detect_in_store_people = detect_in_store_people
         self.device = self._resolve_device(device)
         self.rtsp_transport = self._parse_rtsp_transport(os.getenv("RTSP_TRANSPORT", "tcp"))
         self.capture_open_timeout_msec = self._parse_positive_int(os.getenv("CAPTURE_OPEN_TIMEOUT_MSEC"), 10000)
@@ -86,6 +90,10 @@ class VideoProcessor:
 
         self._model = YOLO(model_name)
         self._vehicle_labels = {"car", "truck", "motorcycle", "bus"}
+        self._person_labels = {"person", "pedestrian", "human", "man", "woman", "boy", "girl"}
+        self._class_labels_by_id = self._build_class_label_map()
+        self._vehicle_class_ids = {cls_id for cls_id, label in self._class_labels_by_id.items() if label in self._vehicle_labels}
+        self._person_class_ids = {cls_id for cls_id, label in self._class_labels_by_id.items() if label in self._person_labels}
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -202,16 +210,7 @@ class VideoProcessor:
         drive_roi = self._to_absolute_roi(self.drive_thru_roi, frame_w, frame_h)
         store_roi = self._to_absolute_roi(self.in_store_roi, frame_w, frame_h)
 
-        results = self._model.track(
-            source=draw,
-            persist=True,
-            tracker="bytetrack.yaml",
-            device=self.device,
-            conf=self.conf,
-            iou=self.iou,
-            imgsz=self.imgsz,
-            verbose=False,
-        )
+        results = self._run_inference(draw)
         result = results[0]
 
         vehicle_ids: set[str | int] = set()
@@ -221,20 +220,34 @@ class VideoProcessor:
         if boxes is not None:
             for idx, box in enumerate(boxes):
                 cls_id = int(box.cls[0].item())
-                label = str(self._model.names.get(cls_id, cls_id))
+                label = self._class_label(cls_id)
+                normalized_label = self._class_labels_by_id.get(cls_id, label.strip().lower())
 
                 x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
                 center_x = int((x1 + x2) / 2)
                 center_y = int((y1 + y2) / 2)
                 track_id: int | None = None
                 if box.id is not None:
-                    track_id = int(box.id[0].item())
+                    try:
+                        maybe_id = float(box.id[0].item())
+                    except (TypeError, ValueError):
+                        maybe_id = float("nan")
+                    if np.isfinite(maybe_id):
+                        track_id = int(maybe_id)
 
-                if label in self._vehicle_labels and self._inside_roi(center_x, center_y, drive_roi):
+                if (
+                    self.detect_drive_thru_vehicles
+                    and self._is_vehicle_label(cls_id, normalized_label)
+                    and self._inside_roi(center_x, center_y, drive_roi)
+                ):
                     identity = track_id if track_id is not None else f"vehicle-{idx}"
                     vehicle_ids.add(identity)
                     self._draw_box(draw, x1, y1, x2, y2, f"{label} #{identity}", (24, 136, 255))
-                elif label == "person" and self._inside_roi(center_x, center_y, store_roi):
+                elif (
+                    self.detect_in_store_people
+                    and self._is_person_label(cls_id, normalized_label)
+                    and self._inside_roi(center_x, center_y, store_roi)
+                ):
                     identity = track_id if track_id is not None else f"person-{idx}"
                     person_ids.add(identity)
                     self._draw_box(draw, x1, y1, x2, y2, f"{label} #{identity}", (78, 204, 163))
@@ -276,6 +289,64 @@ class VideoProcessor:
             processing_fps=round(processing_fps, 1),
         )
         return draw, snapshot
+
+    def _run_inference(self, frame: np.ndarray):
+        # For in-store counting, detection is more reliable than tracker association.
+        if self.detect_in_store_people and not self.detect_drive_thru_vehicles:
+            kwargs: dict[str, Any] = dict(
+                source=frame,
+                device=self.device,
+                conf=self.conf,
+                iou=self.iou,
+                imgsz=self.imgsz,
+                verbose=False,
+            )
+            if self._person_class_ids:
+                kwargs["classes"] = sorted(self._person_class_ids)
+            return self._model.predict(**kwargs)
+
+        return self._model.track(
+            source=frame,
+            persist=True,
+            tracker="bytetrack.yaml",
+            device=self.device,
+            conf=self.conf,
+            iou=self.iou,
+            imgsz=self.imgsz,
+            verbose=False,
+        )
+
+    def _build_class_label_map(self) -> dict[int, str]:
+        names = self._model.names
+        if isinstance(names, dict):
+            items = names.items()
+        elif isinstance(names, list):
+            items = enumerate(names)
+        else:
+            return {}
+
+        normalized: dict[int, str] = {}
+        for cls_id, raw_label in items:
+            try:
+                key = int(cls_id)
+            except (TypeError, ValueError):
+                continue
+            normalized[key] = str(raw_label).strip().lower()
+        return normalized
+
+    def _class_label(self, cls_id: int) -> str:
+        names = self._model.names
+        if isinstance(names, dict):
+            return str(names.get(cls_id, cls_id))
+        if isinstance(names, list) and 0 <= cls_id < len(names):
+            return str(names[cls_id])
+        return str(cls_id)
+
+    def _is_vehicle_label(self, cls_id: int, normalized_label: str) -> bool:
+        return cls_id in self._vehicle_class_ids or normalized_label in self._vehicle_labels
+
+    def _is_person_label(self, cls_id: int, normalized_label: str) -> bool:
+        return cls_id in self._person_class_ids or normalized_label in self._person_labels
 
     @staticmethod
     def _draw_box(
