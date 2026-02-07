@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { API_BASE, fetchBusinessProfile, resetBusinessProfile, updateBusinessProfile } from "@/app/lib/api";
+import { fetchBusinessProfile, resetBusinessProfile, updateBusinessProfile } from "@/app/lib/api";
 import type { BusinessProfile, MenuItemProfile } from "@/app/lib/types";
 
 const CUSTOM_PROFILE_OPTION = "__custom__";
@@ -277,8 +277,8 @@ export default function BusinessProfilePage() {
   };
 
   return (
-    <main className="mx-auto grid w-[min(1280px,calc(100%-24px))] gap-4 py-4 md:w-[min(1280px,calc(100%-36px))] md:py-6">
-      <section className="panel rounded-3xl p-5 md:p-6">
+    <main className="mx-auto grid w-[min(1280px,calc(100%-24px))] gap-3 py-3 md:w-[min(1280px,calc(100%-36px))] md:py-4">
+      <section className="panel rounded-3xl p-4 md:p-5">
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">Business Profile & Menu</h1>
@@ -286,30 +286,29 @@ export default function BusinessProfilePage() {
               Configure your business identity and menu inputs. Recommendation outputs update from this profile.
             </p>
           </div>
-          <div className="text-xs text-muted">Backend: {API_BASE}</div>
         </div>
 
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Profile Editor</p>
           <button
             type="button"
             disabled={profileBusy}
             onClick={() => void loadSampleBusiness()}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Load Sample Business
           </button>
         </div>
 
         {profileDraft ? (
-          <form onSubmit={onSubmitProfile} className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <form onSubmit={onSubmitProfile} className="space-y-3">
+            <div className="grid gap-2.5 md:grid-cols-2 lg:grid-cols-4">
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Business Name</span>
                 <input
                   value={profileDraft.business_name}
                   onChange={(event) => onProfileTextChange("business_name", event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                 />
               </label>
               <label className="text-sm text-slate-700">
@@ -326,7 +325,7 @@ export default function BusinessProfilePage() {
                     }
                     onProfileTextChange("business_type", nextValue);
                   }}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                 >
                   {BUSINESS_TYPE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
@@ -340,7 +339,7 @@ export default function BusinessProfilePage() {
                     value={profileDraft.business_type}
                     onChange={(event) => onProfileTextChange("business_type", event.target.value)}
                     placeholder="Enter custom business type"
-                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                   />
                 ) : null}
               </label>
@@ -349,7 +348,7 @@ export default function BusinessProfilePage() {
                 <input
                   value={profileDraft.location}
                   onChange={(event) => onProfileTextChange("location", event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                 />
               </label>
               <label className="text-sm text-slate-700">
@@ -366,7 +365,7 @@ export default function BusinessProfilePage() {
                     }
                     onProfileTextChange("service_model", nextValue);
                   }}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                 >
                   {SERVICE_MODEL_OPTIONS.map((option) => (
                     <option key={option} value={option}>
@@ -380,13 +379,13 @@ export default function BusinessProfilePage() {
                     value={profileDraft.service_model}
                     onChange={(event) => onProfileTextChange("service_model", event.target.value)}
                     placeholder="Enter custom service model"
-                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                   />
                 ) : null}
               </label>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-2.5 md:grid-cols-2">
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-muted">Average Ticket ($)</span>
                 <input
@@ -395,18 +394,18 @@ export default function BusinessProfilePage() {
                   step={0.01}
                   value={profileDraft.avg_ticket_usd}
                   onChange={(event) => onProfileNumberChange("avg_ticket_usd", event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 accent-input focus:outline-none"
                 />
               </label>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Menu Items</p>
                 <button
                   type="button"
                   onClick={addMenuItem}
-                  className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700"
+                  className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700"
                 >
                   Add Item
                 </button>
@@ -415,7 +414,7 @@ export default function BusinessProfilePage() {
               {profileDraft.menu_items.map((item, index) => {
                 const itemUnitLabel = normalizeUnitLabel(item.unit_label);
                 return (
-                  <article key={item.key ?? `${item.label}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+                  <article key={item.key ?? `${item.label}-${index}`} className="accent-card rounded-2xl border p-2.5">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="display text-sm font-semibold text-graphite">Item {index + 1}</p>
                     <button
@@ -428,13 +427,13 @@ export default function BusinessProfilePage() {
                     </button>
                   </div>
 
-                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-1.5 md:grid-cols-2 lg:grid-cols-3">
                     <label className="text-xs text-slate-700">
                       <span className="mb-1 block font-semibold uppercase tracking-[0.08em] text-muted">Label</span>
                       <input
                         value={item.label}
                         onChange={(event) => onMenuTextChange(index, "label", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                     <label className="text-xs text-slate-700">
@@ -443,7 +442,7 @@ export default function BusinessProfilePage() {
                         value={item.unit_label}
                         onChange={(event) => onMenuTextChange(index, "unit_label", event.target.value)}
                         placeholder="e.g., cups, fillets, strips"
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                     <label className="text-xs text-slate-700">
@@ -454,7 +453,7 @@ export default function BusinessProfilePage() {
                         step={0.01}
                         value={item.units_per_order}
                         onChange={(event) => onMenuNumberChange(index, "units_per_order", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                     <label className="text-xs text-slate-700">
@@ -466,7 +465,7 @@ export default function BusinessProfilePage() {
                         step={1}
                         value={item.batch_size}
                         onChange={(event) => onMenuNumberChange(index, "batch_size", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                     <label className="text-xs text-slate-700">
@@ -478,7 +477,7 @@ export default function BusinessProfilePage() {
                         step={1}
                         value={item.max_unit_size}
                         onChange={(event) => onMenuNumberChange(index, "max_unit_size", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                     <label className="text-xs text-slate-700">
@@ -489,7 +488,7 @@ export default function BusinessProfilePage() {
                         step={1}
                         value={item.baseline_drop_units}
                         onChange={(event) => onMenuNumberChange(index, "baseline_drop_units", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                     <label className="text-xs text-slate-700">
@@ -500,7 +499,7 @@ export default function BusinessProfilePage() {
                         step={0.01}
                         value={item.unit_cost_usd}
                         onChange={(event) => onMenuNumberChange(index, "unit_cost_usd", event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-cyan-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-800 accent-input focus:outline-none"
                       />
                     </label>
                   </div>
@@ -513,7 +512,7 @@ export default function BusinessProfilePage() {
               <button
                 type="submit"
                 disabled={profileBusy}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="accent-button rounded-xl px-4 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {profileBusy ? "Saving..." : "Save Business Profile"}
               </button>
@@ -521,7 +520,7 @@ export default function BusinessProfilePage() {
                 type="button"
                 disabled={profileBusy}
                 onClick={() => void saveProfile("/")}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-1.5 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Save & Go to Live View
               </button>

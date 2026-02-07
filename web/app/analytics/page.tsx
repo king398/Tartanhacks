@@ -42,11 +42,6 @@ function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-function unitLabelFromItem(item: RecommendationResponse["recommendations"][number] | null | undefined): string {
-  const normalized = item?.unit_label?.trim();
-  return normalized && normalized.length ? normalized : "units";
-}
-
 function mapHistoryPoint(point: AnalyticsHistoryPoint): AnalyticsPoint {
   return {
     id: point.id,
@@ -374,52 +369,40 @@ export default function AnalyticsPage() {
     [waitScale.yMax, waitScale.yMin, waitValues],
   );
 
-  const latestUpdated = useMemo(() => {
-    if (!metrics?.timestamp) {
-      return "Waiting for stream...";
-    }
-    return `Updated: ${new Date(metrics.timestamp).toLocaleString()}`;
-  }, [metrics?.timestamp]);
-
   return (
-    <main className="mx-auto grid w-[min(1280px,calc(100%-24px))] gap-4 py-4 md:w-[min(1280px,calc(100%-36px))] md:py-6">
-      <section className="panel rounded-3xl p-5 md:p-6">
-        <div className="mb-5 flex flex-col gap-3 md:mb-6 md:flex-row md:items-center md:justify-between">
+    <main className="mx-auto grid w-[min(1280px,calc(100%-24px))] gap-3 py-3 md:w-[min(1280px,calc(100%-36px))] md:py-4">
+      <section className="panel rounded-3xl p-4 md:p-5">
+        <div className="mb-3">
           <div>
             <h1 className="display text-2xl font-semibold tracking-tight text-graphite md:text-3xl">Live Analytics</h1>
             <p className="text-sm text-muted md:text-base">Rolling analysis of queue pressure, wait-time risk, and recommendation confidence.</p>
           </div>
-
-          <div className="space-y-2 text-sm text-muted md:text-right">
-            <div>{latestUpdated}</div>
-            <div className="text-xs">Backend: {API_BASE}</div>
-          </div>
         </div>
 
-        {error ? <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+        {error ? <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         {metrics?.stream_status && metrics.stream_status !== "ok" ? (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             One or more streams are unavailable. {metrics.stream_error ?? "Check source URL, credentials, and network reachability."}
           </div>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="soft-hover accent-card rounded-2xl border p-3">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Queue State</p>
-            <p className="mt-2 display text-2xl font-semibold capitalize text-graphite">{reco?.forecast.queue_state ?? "unknown"}</p>
+            <p className="mt-2 display text-2xl font-semibold capitalize text-sky-900">{reco?.forecast.queue_state ?? "unknown"}</p>
             <p className="text-sm text-muted">Trend {reco?.forecast.trend_customers_per_min?.toFixed(2) ?? "0.00"} cust/min</p>
           </article>
-          <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
+          <article className="soft-hover accent-card rounded-2xl border p-3">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Average Wait</p>
             <p className="mt-2 display text-2xl font-semibold text-amber-700">{summary.avgWait.toFixed(1)} min</p>
             <p className="text-sm text-muted">Current {metrics?.aggregates.estimated_wait_time_min?.toFixed(1) ?? "0.0"} min</p>
           </article>
-          <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
+          <article className="soft-hover accent-card rounded-2xl border p-3">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Peak Customer Load</p>
-            <p className="mt-2 display text-2xl font-semibold text-cyan-700">{summary.peakCustomers.toFixed(1)}</p>
+            <p className="mt-2 display text-2xl font-semibold text-sky-700">{summary.peakCustomers.toFixed(1)}</p>
             <p className="text-sm text-muted">Low {summary.minCustomers.toFixed(1)} / Shift {summary.queueShift.toFixed(1)}</p>
           </article>
-          <article className="soft-hover rounded-2xl border border-slate-200 bg-white p-4">
+          <article className="soft-hover accent-card rounded-2xl border p-3">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Model Quality</p>
             <p className="mt-2 display text-2xl font-semibold gradient-text">{Math.round(summary.avgConfidence * 100)}%</p>
             <p className="text-sm text-muted">Avg {summary.avgFps.toFixed(1)} FPS</p>
@@ -427,11 +410,11 @@ export default function AnalyticsPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="panel rounded-3xl p-5 md:p-6">
+      <section className="grid gap-3 lg:grid-cols-2">
+        <article className="panel rounded-3xl p-4 md:p-5">
           <h2 className="display text-xl font-semibold text-graphite">Customer Load Timeline</h2>
           <p className="mt-1 text-sm text-muted">Recent total customer estimates from computer-vision tracking.</p>
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+          <div className="mt-3 rounded-2xl border accent-card p-3">
             <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-44 w-full" role="img" aria-label="Total customers trend with labeled axes">
               {customerScale.yTicks.map((tick, index) => (
                 <g key={`customers-y-${index}`}>
@@ -440,7 +423,7 @@ export default function AnalyticsPage() {
                     y1={tick.y}
                     x2={CHART_WIDTH - CHART_MARGIN_RIGHT}
                     y2={tick.y}
-                    stroke={index === customerScale.yTicks.length - 1 ? "#94a3b8" : "#e2e8f0"}
+                    stroke={index === customerScale.yTicks.length - 1 ? "#93c5fd" : "#dbeafe"}
                     strokeWidth="1"
                   />
                   <text x={CHART_MARGIN_LEFT - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" fontSize="10.5" fontWeight="600">
@@ -455,7 +438,7 @@ export default function AnalyticsPage() {
                     y1={CHART_HEIGHT - CHART_MARGIN_BOTTOM}
                     x2={tick.x}
                     y2={CHART_HEIGHT - CHART_MARGIN_BOTTOM + 5}
-                    stroke="#94a3b8"
+                    stroke="#93c5fd"
                     strokeWidth="1"
                   />
                   <text
@@ -470,7 +453,7 @@ export default function AnalyticsPage() {
                   </text>
                 </g>
               ))}
-              <path d={customersSparkline} fill="none" stroke="#0f766e" strokeWidth="3" strokeLinecap="round" />
+              <path d={customersSparkline} fill="none" stroke="#0284c7" strokeWidth="3" strokeLinecap="round" />
               <text x={CHART_MARGIN_LEFT} y={CHART_MARGIN_TOP - 3} fill="#64748b" fontSize="11" fontWeight="600">
                 Customers (Y)
               </text>
@@ -481,10 +464,10 @@ export default function AnalyticsPage() {
           </div>
         </article>
 
-        <article className="panel rounded-3xl p-5 md:p-6">
+        <article className="panel rounded-3xl p-4 md:p-5">
           <h2 className="display text-xl font-semibold text-graphite">Estimated Wait Timeline</h2>
           <p className="mt-1 text-sm text-muted">How queue dynamics are translating into service delay risk.</p>
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+          <div className="mt-3 rounded-2xl border accent-card p-3">
             <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-44 w-full" role="img" aria-label="Estimated wait trend with labeled axes">
               {waitScale.yTicks.map((tick, index) => (
                 <g key={`wait-y-${index}`}>
@@ -493,7 +476,7 @@ export default function AnalyticsPage() {
                     y1={tick.y}
                     x2={CHART_WIDTH - CHART_MARGIN_RIGHT}
                     y2={tick.y}
-                    stroke={index === waitScale.yTicks.length - 1 ? "#94a3b8" : "#e2e8f0"}
+                    stroke={index === waitScale.yTicks.length - 1 ? "#93c5fd" : "#dbeafe"}
                     strokeWidth="1"
                   />
                   <text x={CHART_MARGIN_LEFT - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" fontSize="10.5" fontWeight="600">
@@ -508,7 +491,7 @@ export default function AnalyticsPage() {
                     y1={CHART_HEIGHT - CHART_MARGIN_BOTTOM}
                     x2={tick.x}
                     y2={CHART_HEIGHT - CHART_MARGIN_BOTTOM + 5}
-                    stroke="#94a3b8"
+                    stroke="#93c5fd"
                     strokeWidth="1"
                   />
                   <text
@@ -523,7 +506,7 @@ export default function AnalyticsPage() {
                   </text>
                 </g>
               ))}
-              <path d={waitSparkline} fill="none" stroke="#d97706" strokeWidth="3" strokeLinecap="round" />
+              <path d={waitSparkline} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
               <text x={CHART_MARGIN_LEFT} y={CHART_MARGIN_TOP - 3} fill="#64748b" fontSize="11" fontWeight="600">
                 Wait Minutes (Y)
               </text>
@@ -535,20 +518,20 @@ export default function AnalyticsPage() {
         </article>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <article className="panel rounded-3xl p-5 md:p-6">
+      <section className="grid gap-3">
+        <article className="panel rounded-3xl p-4 md:p-5">
           <h2 className="display text-xl font-semibold text-graphite">What Is Happening Right Now</h2>
-          <p className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">{activityNarrative}</p>
+          <p className="mt-2.5 rounded-2xl border accent-card p-3 text-sm text-slate-700">{activityNarrative}</p>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+            <article className="accent-card rounded-2xl border p-3">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Projected Customers</p>
               <p className="mt-2 display text-2xl font-semibold text-graphite">
                 {reco?.forecast.projected_customers?.toFixed(1) ?? "0.0"}
               </p>
               <p className="text-sm text-muted">Horizon {reco?.forecast.horizon_min ?? 0} min</p>
             </article>
-            <article className="rounded-2xl border border-slate-200 bg-white p-4">
+            <article className="accent-card rounded-2xl border p-3">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Protected Revenue</p>
               <p className="mt-2 display text-2xl font-semibold text-emerald-700">
                 {formatMoney(reco?.impact.estimated_revenue_protected_usd ?? 0)}
@@ -557,31 +540,6 @@ export default function AnalyticsPage() {
             </article>
           </div>
         </article>
-
-        <aside className="panel rounded-3xl p-5 md:p-6">
-          <h2 className="display text-xl font-semibold text-graphite">Recommendation Activity</h2>
-          <div className="mt-4 grid gap-3">
-            {(reco?.recommendations ?? []).map((item) => {
-              const unitLabel = unitLabelFromItem(item);
-              return (
-                <article key={item.item} className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="display text-base font-semibold text-graphite">{item.label}</h3>
-                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-muted">{item.urgency}</span>
-                  </div>
-                  <p className="mt-1 text-sm text-slate-700">
-                    Recommended drop: {item.recommended_units} {unitLabel} (baseline {item.baseline_units} {unitLabel})
-                  </p>
-                  <p className="mt-1 text-xs text-muted">{item.reason}</p>
-                </article>
-              );
-            })}
-
-            {reco?.recommendations.length ? null : (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-muted">Waiting for recommendations...</div>
-            )}
-          </div>
-        </aside>
       </section>
     </main>
   );

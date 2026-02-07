@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { API_BASE, fetchDashboardData, fetchDemoReadiness } from "@/app/lib/api";
+import { fetchDashboardData, fetchDemoReadiness } from "@/app/lib/api";
 import type { DemoReadiness, DemoReadinessCheckStatus, Metrics, RecommendationItem, RecommendationResponse } from "@/app/lib/types";
 
 const readinessBadge: Record<string, string> = {
@@ -81,13 +81,6 @@ export default function JudgeBriefPage() {
     };
   }, []);
 
-  const latestUpdated = useMemo(() => {
-    if (!metrics?.timestamp) {
-      return "Waiting for stream...";
-    }
-    return `Updated: ${new Date(metrics.timestamp).toLocaleString()}`;
-  }, [metrics?.timestamp]);
-
   const readinessClassName = readiness ? readinessBadge[readiness.status] ?? readinessBadge.blocked : readinessBadge.blocked;
   const streamCoverageText = useMemo(() => {
     const driveStatus = metrics?.cameras?.drive_thru?.stream_status ?? "initializing";
@@ -146,9 +139,7 @@ export default function JudgeBriefPage() {
           </div>
 
           <div className="space-y-2 text-sm text-muted md:text-right">
-            <div>{latestUpdated}</div>
             <div>{streamCoverageText}</div>
-            <div className="text-xs">Backend: {API_BASE}</div>
           </div>
         </div>
 
