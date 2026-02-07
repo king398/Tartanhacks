@@ -3,3 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.pyc
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
