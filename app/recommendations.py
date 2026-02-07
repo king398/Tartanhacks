@@ -168,10 +168,25 @@ class RecommendationEngine:
                 )
             self._last_decision_by_item.setdefault(key, 0)
 
-    def _demand_rate_units_per_min(self, projected_customers: float, profile: ItemProfile) -> float:
-        horizon_min = max(0.5, float(self.forecast_horizon_min))
-        customers_per_min = max(0.0, projected_customers) / horizon_min
+    def _demand_rate_units_per_min(self, customer_load: float, profile: ItemProfile) -> float:
+        cadence_min = max(0.5, float(self.drop_cadence_min))
+        customers_per_min = max(0.0, customer_load) / cadence_min
         return customers_per_min * profile.units_per_order
+
+    @staticmethod
+    def _round_to_nearest_unit(units: float) -> int:
+        if units <= 0.0:
+            return 0
+        return int(math.floor(units + 0.5))
+
+    def _stabilized_customer_count(self, current_customers: float) -> float:
+        if not self._history:
+            return max(0.0, current_customers)
+        window_size = min(12, len(self._history))
+        recent_values = [point[1] for point in list(self._history)[-window_size:]]
+        trailing_avg = sum(recent_values) / max(1, window_size)
+        stabilized = (0.65 * trailing_avg) + (0.35 * max(0.0, current_customers))
+        return max(0.0, stabilized)
 
     @staticmethod
     def _fryer_units(state: ItemInventoryState, *, ready_before: datetime | None = None) -> int:
@@ -179,7 +194,7 @@ class RecommendationEngine:
             return int(sum(max(0, lot.units) for lot in state.fryer_lots))
         return int(sum(max(0, lot.units) for lot in state.fryer_lots if lot.ready_at <= ready_before))
 
-    def _advance_inventory(self, *, timestamp: datetime, projected_customers: float) -> None:
+    def _advance_inventory(self, *, timestamp: datetime, customer_load: float) -> None:
         self._ensure_inventory_state()
         if self._last_inventory_timestamp is None:
             self._last_inventory_timestamp = timestamp
@@ -195,7 +210,7 @@ class RecommendationEngine:
                 cooked_lot = state.fryer_lots.popleft()
                 state.ready_units += float(max(0, cooked_lot.units))
 
-            demand_rate_units_per_min = self._demand_rate_units_per_min(projected_customers, profile)
+            demand_rate_units_per_min = self._demand_rate_units_per_min(customer_load, profile)
             consumed_units = demand_rate_units_per_min * (elapsed_sec / 60.0)
             state.ready_units = max(0.0, state.ready_units - consumed_units)
             state.ready_units = min(state.ready_units, float(profile.max_unit_size * 6))
@@ -285,15 +300,6 @@ class RecommendationEngine:
         fps_factor = self._clamp(processing_fps / 15.0, 0.0, 1.0)
         return round(self._clamp(0.45 + (0.35 * history_factor) + (0.2 * fps_factor), 0.45, 0.95), 2)
 
-    @staticmethod
-    def _target_drop_units(target_units: float, *, queue_state: str) -> int:
-        # Keep surging queues conservative, but allow finer steady/falling recommendations.
-        if queue_state == "surging":
-            return int(math.ceil(target_units))
-        if queue_state == "falling":
-            return max(0, int(math.floor(target_units)))
-        return max(0, int(round(target_units)))
-
     def _build_unavailable_response(
         self,
         *,
@@ -302,20 +308,30 @@ class RecommendationEngine:
         stream_error: str | None,
     ) -> dict[str, Any]:
         fallback_urgency = self._urgency_from_customer_count(current_customers)
-        now = datetime.now(timezone.utc)
-        decision_due, remaining_sec = self._decision_due(now)
-        self._ensure_inventory_state()
         recommendations = []
+        effective_customers = max(0.0, current_customers)
         for profile in self.item_profiles:
+            max_units = int(profile.max_unit_size)
             baseline_units = min(int(profile.baseline_drop_units), int(profile.max_unit_size))
-            state = self._inventory.get(profile.key)
-            ready_units = int(round(state.ready_units)) if state else baseline_units
-            fryer_units = self._fryer_units(state) if state else 0
-            if self._last_decision_timestamp is None:
-                recommended_units = baseline_units
-            else:
-                recommended_units = int(self._last_decision_by_item.get(profile.key, baseline_units))
-            recommended_units = min(max(0, recommended_units), int(profile.max_unit_size))
+            raw_target_units = max(0.0, effective_customers * profile.units_per_order)
+            rounded_target_units = self._round_to_nearest_unit(raw_target_units)
+            recommended_units = min(rounded_target_units, max_units)
+
+            reason = (
+                "Live stream is unavailable; using the latest total customer estimate (drive-thru + in-store). "
+                f"{effective_customers:.1f} customers x {profile.units_per_order:.2f} "
+                f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f}. "
+                f"Rounded to nearest whole unit => "
+                f"{self._qty(rounded_target_units, unit_label=profile.unit_label)}; "
+                f"drop {self._qty(recommended_units, unit_label=profile.unit_label)} now."
+            )
+
+            if rounded_target_units > max_units:
+                reason = (
+                    f"{reason} Capped at {self._qty(profile.max_unit_size, unit_label=profile.unit_label)} "
+                    "based on configured max unit size."
+                )
+
             recommendations.append(
                 {
                     "item": profile.key,
@@ -325,18 +341,16 @@ class RecommendationEngine:
                     "max_unit_size": profile.max_unit_size,
                     "unit_label": self._unit_label(profile.unit_label),
                     "delta_units": recommended_units - baseline_units,
-                    "ready_inventory_units": ready_units,
-                    "fryer_inventory_units": fryer_units,
-                    "decision_locked": not decision_due,
-                    "next_decision_in_sec": remaining_sec,
                     "urgency": fallback_urgency,
-                    "reason": "Live stream is unavailable; holding the latest 30-second recommendation cycle.",
+                    "reason": reason,
                 }
             )
 
         notes = [
             "Recommendations are generated for the next cook cycle.",
-            f"Recommendations refresh every {int(round(self.decision_interval_sec))}s; each refresh is treated as an immediate fryer drop.",
+            "Drop sizing is based on current total customer count (drive-thru + in-store) and per-order item averages.",
+            "Each item recommendation is rounded to the nearest whole unit.",
+            "Recommendations are capped at each item's configured max unit size.",
             "Business impact values are directional estimates for decision support.",
         ]
         if stream_error:
@@ -372,7 +386,13 @@ class RecommendationEngine:
 
     def generate(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         timestamp = self._parse_timestamp(snapshot.get("timestamp"))
-        current_customers = float(snapshot.get("aggregates", {}).get("total_customers", 0.0) or 0.0)
+        current_customers = float(
+            snapshot.get("aggregates", {}).get(
+                "total_customers",
+                snapshot.get("in_store", {}).get("person_count", 0.0),
+            )
+            or 0.0
+        )
         current_wait = float(snapshot.get("aggregates", {}).get("estimated_wait_time_min", 0.0) or 0.0)
         processing_fps = float(snapshot.get("performance", {}).get("processing_fps", 0.0) or 0.0)
         stream_status = str(snapshot.get("stream_status", "ok")).lower()
@@ -389,86 +409,37 @@ class RecommendationEngine:
 
         trend_per_min = self._trend_per_min()
         queue_state = self._state_from_trend(trend_per_min)
-        trend_boost = 0.9 if queue_state == "surging" else 0.7 if queue_state == "steady" else 0.5
-        projected_customers = max(0.0, current_customers + (trend_per_min * self.forecast_horizon_min * trend_boost))
+        effective_customers = max(0.0, current_customers)
 
-        self._advance_inventory(timestamp=timestamp, projected_customers=projected_customers)
-
-        safety_ratio = 0.35 if queue_state == "surging" else 0.22 if queue_state == "steady" else 0.12
-        urgency_by_customer_load = self._urgency_from_customer_count(current_customers)
-        decision_due, decision_remaining_sec = self._decision_due(timestamp)
-        decision_window_min = max(self.drop_cadence_min, self.decision_interval_sec / 60.0)
-        coverage_deadline = timestamp + timedelta(minutes=decision_window_min)
+        urgency_by_customer_load = self._urgency_from_customer_count(effective_customers)
 
         recommendations: list[dict[str, Any]] = []
         waste_avoided_units = 0.0
         cost_saved_usd = 0.0
 
-        if decision_due:
-            self._last_decision_by_item = {}
-
         for profile in self.item_profiles:
-            state = self._inventory[profile.key]
-            ready_units = max(0.0, state.ready_units)
             max_units = int(profile.max_unit_size)
             baseline_units = min(int(profile.baseline_drop_units), max_units)
 
-            demand_rate_units_per_min = self._demand_rate_units_per_min(projected_customers, profile)
-            forecast_window_demand_units = demand_rate_units_per_min * decision_window_min
-            safety_units = forecast_window_demand_units * safety_ratio
-            target_inventory_units = forecast_window_demand_units + safety_units
+            raw_target_units = max(0.0, effective_customers * profile.units_per_order)
+            rounded_target_units = self._round_to_nearest_unit(raw_target_units)
+            recommended_units = min(rounded_target_units, max_units)
 
-            fryer_units_total = self._fryer_units(state)
-            fryer_units_in_window = self._fryer_units(state, ready_before=coverage_deadline)
-            available_units_for_window = ready_units + float(fryer_units_in_window)
-            required_drop_units = max(0.0, target_inventory_units - available_units_for_window)
-            target_drop_units = self._target_drop_units(required_drop_units, queue_state=queue_state)
-
-            if decision_due:
-                recommended_units = min(target_drop_units, max_units)
-                if recommended_units > 0:
-                    ready_at = timestamp + timedelta(seconds=self.cook_time_sec)
-                    state.fryer_lots.append(FryerLot(units=recommended_units, ready_at=ready_at))
-                    fryer_units_total += recommended_units
-                self._last_decision_by_item[profile.key] = recommended_units
-            else:
-                recommended_units = min(max(0, int(self._last_decision_by_item.get(profile.key, 0))), max_units)
-
-            baseline_over = max(0.0, baseline_units - required_drop_units)
-            recommended_over = max(0.0, recommended_units - required_drop_units)
-            saved_units = max(0.0, baseline_over - recommended_over)
+            saved_units = max(0.0, float(baseline_units - recommended_units))
             waste_avoided_units += saved_units
             cost_saved_usd += saved_units * profile.unit_cost_usd
 
-            ready_inventory_units = int(round(state.ready_units))
-            fryer_inventory_units = self._fryer_units(state)
             delta_units = recommended_units - baseline_units
 
-            if decision_due:
-                if recommended_units > 0:
-                    reason = (
-                        f"Inventory ready {self._qty(ready_inventory_units, unit_label=profile.unit_label)}, "
-                        f"fryer {self._qty(fryer_inventory_units, unit_label=profile.unit_label)}. "
-                        f"Forecast {self._qty(forecast_window_demand_units, unit_label=profile.unit_label)} "
-                        f"over next {decision_window_min:.1f} min; "
-                        f"drop {self._qty(recommended_units, unit_label=profile.unit_label)} now."
-                    )
-                else:
-                    reason = (
-                        f"Inventory ready {self._qty(ready_inventory_units, unit_label=profile.unit_label)}, "
-                        f"fryer {self._qty(fryer_inventory_units, unit_label=profile.unit_label)} already covers "
-                        f"{self._qty(forecast_window_demand_units, unit_label=profile.unit_label)} "
-                        f"forecast over next {decision_window_min:.1f} min."
-                    )
-            else:
-                reason = (
-                    f"Decision locked on {int(round(self.decision_interval_sec))}s cadence; "
-                    f"next refresh in {decision_remaining_sec}s. Inventory ready "
-                    f"{self._qty(ready_inventory_units, unit_label=profile.unit_label)}, "
-                    f"fryer {self._qty(fryer_inventory_units, unit_label=profile.unit_label)}."
-                )
+            reason = (
+                f"{effective_customers:.1f} total customers (drive-thru + in-store) x {profile.units_per_order:.2f} "
+                f"{self._unit_label(profile.unit_label)}/order = {raw_target_units:.1f}. "
+                f"Rounded to nearest whole unit => "
+                f"{self._qty(rounded_target_units, unit_label=profile.unit_label)}; "
+                f"drop {self._qty(recommended_units, unit_label=profile.unit_label)} now."
+            )
 
-            if decision_due and target_drop_units > max_units:
+            if rounded_target_units > max_units:
                 reason = (
                     f"{reason} Capped at {self._qty(profile.max_unit_size, unit_label=profile.unit_label)} "
                     "based on configured max unit size."
@@ -483,23 +454,16 @@ class RecommendationEngine:
                     "max_unit_size": profile.max_unit_size,
                     "unit_label": self._unit_label(profile.unit_label),
                     "delta_units": delta_units,
-                    "ready_inventory_units": ready_inventory_units,
-                    "fryer_inventory_units": fryer_inventory_units,
-                    "forecast_window_demand_units": round(forecast_window_demand_units, 1),
-                    "decision_locked": not decision_due,
-                    "next_decision_in_sec": decision_remaining_sec if not decision_due else int(round(self.decision_interval_sec)),
+                    "forecast_window_demand_units": round(raw_target_units, 1),
                     "urgency": urgency_by_customer_load,
                     "reason": reason,
                 }
             )
 
-        if decision_due:
-            self._last_decision_timestamp = timestamp
-
-        queue_pressure = self._clamp(projected_customers / 24.0, 0.0, 1.0)
+        queue_pressure = self._clamp(effective_customers / 24.0, 0.0, 1.0)
         wait_reduction_min = self._clamp((waste_avoided_units / 8.0) + (queue_pressure * 1.5), 0.2, 3.2)
         expected_conversion_lift = self._clamp(wait_reduction_min * 0.025, 0.0, 0.16)
-        revenue_protected_usd = round(projected_customers * expected_conversion_lift * self.avg_ticket_usd, 2)
+        revenue_protected_usd = round(effective_customers * expected_conversion_lift * self.avg_ticket_usd, 2)
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -509,7 +473,7 @@ class RecommendationEngine:
                 "queue_state": queue_state,
                 "trend_customers_per_min": round(trend_per_min, 2),
                 "current_customers": round(current_customers, 1),
-                "projected_customers": round(projected_customers, 1),
+                "projected_customers": round(effective_customers, 1),
                 "confidence": self._confidence(processing_fps),
             },
             "recommendations": recommendations,
@@ -526,9 +490,9 @@ class RecommendationEngine:
                 "cook_time_sec": int(round(self.cook_time_sec)),
                 "avg_ticket_usd": round(self.avg_ticket_usd, 2),
                 "notes": [
-                    "Recommendations are generated for the next cook cycle.",
-                    f"Recommendations refresh every {int(round(self.decision_interval_sec))}s; each refresh is treated as an immediate fryer drop.",
-                    "Inventory state tracks ready inventory and in-fryer inventory by menu item.",
+                    "Drop sizing is based on current total customer count (drive-thru + in-store) and per-order item averages.",
+                    "Each item recommendation is rounded to the nearest whole unit.",
+                    "Recommendations are capped at each item's configured max unit size.",
                     "Business impact values are directional estimates for decision support.",
                 ],
             },
